@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import Modal from "../components/Modal";
 import { Aviso, Confirmacion } from "../components/Dialogos";
 import { formatearCOP } from "../lib/formato";
-import { esTipoArea } from "../lib/calculos";
+import { esTipoArea, esTipoLineal } from "../lib/calculos";
 import {
   actualizarArticulo,
   crearArticulo,
@@ -26,10 +26,17 @@ interface FormArticulo {
   valor: string;
 }
 
+/** Únicos tipos de medida seleccionables en el combo. */
+const TIPOS_MEDIDA = ["Und", "m2", "cm2", "mm2", "m", "cm", "mm"];
+
+/** Lleva un tipo guardado (texto libre en datos antiguos) a una opción del combo. */
+const tipoMedidaCanonico = (tipo: string): string =>
+  TIPOS_MEDIDA.find((t) => t.toLowerCase() === tipo.trim().toLowerCase()) ?? "Und";
+
 const formVacio: FormArticulo = {
   nombre: "",
   cantidad: "1",
-  tipo_medida: "und",
+  tipo_medida: "Und",
   cantidad_x_medida: "1",
   valor: "",
 };
@@ -55,7 +62,7 @@ export default function ArticulosTab({ datos, userId, refrescar }: Props) {
     setForm({
       nombre: articulo.nombre,
       cantidad: String(articulo.cantidad),
-      tipo_medida: articulo.tipo_medida,
+      tipo_medida: tipoMedidaCanonico(articulo.tipo_medida),
       cantidad_x_medida: String(articulo.cantidad_x_medida),
       valor: String(articulo.valor),
     });
@@ -80,11 +87,11 @@ export default function ArticulosTab({ datos, userId, refrescar }: Props) {
       return setErrorForm("La cantidad debe ser un número mayor que cero.");
     if (!tipoMedida) return setErrorForm("El tipo de medida es obligatorio.");
     if (
-      esTipoArea(tipoMedida) &&
+      (esTipoArea(tipoMedida) || esTipoLineal(tipoMedida)) &&
       (!form.cantidad_x_medida || Number.isNaN(cantidadXMedida) || cantidadXMedida <= 0)
     )
       return setErrorForm(
-        "Para artículos de área (m2, cm2, mm2), la cantidad por medida debe ser mayor que cero."
+        "Para artículos de área (m2, cm2, mm2) o lineales (m, cm, mm), la cantidad por medida debe ser mayor que cero."
       );
     if (form.valor === "" || Number.isNaN(valor) || valor < 0)
       return setErrorForm("El valor debe ser un número mayor o igual a cero.");
@@ -204,19 +211,20 @@ export default function ArticulosTab({ datos, userId, refrescar }: Props) {
             </label>
             <label className="campo">
               Tipo de Medida
-              <input
-                list="tipos-medida"
+              <select
                 value={form.tipo_medida}
                 onChange={(e) => setForm({ ...form, tipo_medida: e.target.value })}
-              />
-              <datalist id="tipos-medida">
-                <option value="und" />
-                <option value="m2" />
-                <option value="cm2" />
-                <option value="mm2" />
-              </datalist>
+              >
+                {TIPOS_MEDIDA.map((tipo) => (
+                  <option key={tipo} value={tipo}>
+                    {tipo}
+                  </option>
+                ))}
+              </select>
               <span className="campo-ayuda">
-                Los valores m2, cm2 y mm2 activan el cálculo por área con dos medidas lineales.
+                m2, cm2 y mm2 activan el cálculo por área (dos medidas lineales); m, cm y mm el
+                cálculo lineal (una medida). Ambos aplican el desperdicio de Configuración →
+                Parámetros.
               </span>
             </label>
             <label className="campo">

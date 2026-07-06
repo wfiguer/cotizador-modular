@@ -5,7 +5,7 @@ import RenglonesEditor, { nuevoRenglon } from "../components/RenglonesEditor";
 import DetalleModulo from "../components/DetalleModulo";
 import { formatearCOP, formatearFecha, hoyISO } from "../lib/formato";
 import {
-  calcularParcialRenglon,
+  recalcularRenglon,
   renglonesAItems,
   sumarParciales,
   validarRenglones,
@@ -16,6 +16,7 @@ import {
   eliminarCotizacion,
   proximoIdCotizacion,
 } from "../lib/datos";
+import { exportarCotizacion } from "../lib/exportar";
 import type { Cotizacion, Datos, RenglonForm } from "../types";
 
 interface Props {
@@ -31,10 +32,20 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
   const [aEliminar, setAEliminar] = useState<Cotizacion | null>(null);
   const [detalleModuloId, setDetalleModuloId] = useState<string | null>(null);
 
+  const clienteVacio = {
+    nombre_cliente: "",
+    numero_documento: "",
+    direccion: "",
+    telefono: "",
+    ciudad: "",
+    version: "",
+  };
+
   const [idPrevisto, setIdPrevisto] = useState<number | null>(null);
-  const [nombreCliente, setNombreCliente] = useState("");
+  const [cliente, setCliente] = useState(clienteVacio);
   const [renglones, setRenglones] = useState<RenglonForm[]>([]);
   const [errorForm, setErrorForm] = useState<string | null>(null);
+  const [mensajeRecalculo, setMensajeRecalculo] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
 
   const valorFinal = sumarParciales(renglones);
@@ -48,15 +59,23 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
 
   const abrirCrear = () => {
     setCotizacionActual(null);
-    setNombreCliente("");
+    setCliente(clienteVacio);
     setRenglones([nuevoRenglon()]);
     setErrorForm(null);
+    setMensajeRecalculo(null);
     setModal("crear");
   };
 
   const abrirEditar = (cotizacion: Cotizacion) => {
     setCotizacionActual(cotizacion);
-    setNombreCliente(cotizacion.nombre_cliente);
+    setCliente({
+      nombre_cliente: cotizacion.nombre_cliente,
+      numero_documento: cotizacion.numero_documento,
+      direccion: cotizacion.direccion,
+      telefono: cotizacion.telefono,
+      ciudad: cotizacion.ciudad,
+      version: cotizacion.version,
+    });
     const items = datos.cotizacionItems.filter((item) => item.cotizacion_id === cotizacion.id);
     setRenglones(
       items.map((item) => ({
@@ -67,40 +86,46 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
         medida_lineal_1: item.medida_lineal_1 != null ? String(item.medida_lineal_1) : "",
         medida_lineal_2: item.medida_lineal_2 != null ? String(item.medida_lineal_2) : "",
         unidad_lineal: item.unidad_lineal ?? "m",
-        // Snapshot: se muestra el valor guardado hasta que el usuario
-        // modifique el renglón o presione "Recalcular".
+        // Snapshot: se muestran el % de desperdicio y el valor guardados hasta
+        // que el usuario modifique el renglón o presione "Recalcular".
+        desperdicio: item.desperdicio,
         valor_parcial: item.valor_parcial,
       }))
     );
     setErrorForm(null);
+    setMensajeRecalculo(null);
     setModal("editar");
   };
 
   const recalcular = () => {
-    setRenglones((actuales) =>
-      actuales.map((r) => ({ ...r, valor_parcial: calcularParcialRenglon(r, datos) }))
-    );
+    setRenglones((actuales) => actuales.map((r) => recalcularRenglon(r, datos)));
+    setMensajeRecalculo("Recalculado. Presione Guardar para aplicar los cambios.");
   };
 
   const guardar = async (e: FormEvent) => {
     e.preventDefault();
-    if (!nombreCliente.trim()) return setErrorForm("El nombre del cliente es obligatorio.");
+    if (!cliente.nombre_cliente.trim()) return setErrorForm("El nombre del cliente es obligatorio.");
     const errorRenglones = validarRenglones(renglones, datos);
     if (errorRenglones) return setErrorForm(errorRenglones);
 
     // Los valores parciales guardados son los que se muestran (snapshot),
     // no se recalculan automáticamente al guardar.
-    const items = renglones.map((r) => ({
-      ...renglonesAItems([r], datos)[0],
-      valor_parcial: r.valor_parcial,
-    }));
+    const items = renglonesAItems(renglones, datos);
+    const campos = {
+      nombre_cliente: cliente.nombre_cliente.trim(),
+      numero_documento: cliente.numero_documento.trim(),
+      direccion: cliente.direccion.trim(),
+      telefono: cliente.telefono.trim(),
+      ciudad: cliente.ciudad.trim(),
+      version: cliente.version.trim(),
+    };
 
     setGuardando(true);
     try {
       if (modal === "editar" && cotizacionActual) {
-        await actualizarCotizacion(cotizacionActual.id, nombreCliente.trim(), valorFinal, items);
+        await actualizarCotizacion(cotizacionActual.id, campos, valorFinal, items);
       } else {
-        await crearCotizacion(userId, nombreCliente.trim(), valorFinal, items);
+        await crearCotizacion(userId, campos, valorFinal, items);
       }
       await refrescar();
       setModal(null);
@@ -145,6 +170,7 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
               <th>Fecha Creación</th>
               <th>Fecha Actualización</th>
               <th>Nombre Cliente</th>
+              <th>N° Documento</th>
               <th className="num">Valor Final</th>
               <th className="acciones">Acciones</th>
             </tr>
@@ -156,6 +182,7 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
                 <td>{formatearFecha(cotizacion.fecha_creacion)}</td>
                 <td>{formatearFecha(cotizacion.fecha_actualizacion)}</td>
                 <td>{cotizacion.nombre_cliente}</td>
+                <td>{cotizacion.numero_documento}</td>
                 <td className="num">{formatearCOP(cotizacion.valor_final)}</td>
                 <td className="acciones">
                   <button
@@ -207,14 +234,51 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
               </div>
             </div>
 
-            <label className="campo">
-              Nombre Cliente
-              <input
-                value={nombreCliente}
-                onChange={(e) => setNombreCliente(e.target.value)}
-                autoFocus
-              />
-            </label>
+            <div className="fila-campos">
+              <label className="campo">
+                Nombre Cliente
+                <input
+                  value={cliente.nombre_cliente}
+                  onChange={(e) => setCliente({ ...cliente, nombre_cliente: e.target.value })}
+                  autoFocus
+                />
+              </label>
+              <label className="campo">
+                N° Documento
+                <input
+                  value={cliente.numero_documento}
+                  onChange={(e) => setCliente({ ...cliente, numero_documento: e.target.value })}
+                />
+              </label>
+              <label className="campo">
+                Dirección
+                <input
+                  value={cliente.direccion}
+                  onChange={(e) => setCliente({ ...cliente, direccion: e.target.value })}
+                />
+              </label>
+              <label className="campo">
+                Teléfono
+                <input
+                  value={cliente.telefono}
+                  onChange={(e) => setCliente({ ...cliente, telefono: e.target.value })}
+                />
+              </label>
+              <label className="campo">
+                Ciudad
+                <input
+                  value={cliente.ciudad}
+                  onChange={(e) => setCliente({ ...cliente, ciudad: e.target.value })}
+                />
+              </label>
+              <label className="campo">
+                Versión de Cotización
+                <input
+                  value={cliente.version}
+                  onChange={(e) => setCliente({ ...cliente, version: e.target.value })}
+                />
+              </label>
+            </div>
 
             <RenglonesEditor
               datos={datos}
@@ -228,6 +292,7 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
             </div>
 
             {errorForm && <div className="msg-error">{errorForm}</div>}
+            {mensajeRecalculo && <div className="msg-exito">{mensajeRecalculo}</div>}
 
             <div className="modal-acciones">
               {modal === "editar" && (
@@ -259,6 +324,15 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
         >
           <p>
             Cliente: <strong>{detalleCotizacion.nombre_cliente}</strong>
+            {detalleCotizacion.numero_documento && (
+              <>
+                {" · "}N° Documento: {detalleCotizacion.numero_documento}
+              </>
+            )}
+            {detalleCotizacion.telefono && <> · Teléfono: {detalleCotizacion.telefono}</>}
+            {detalleCotizacion.direccion && <> · Dirección: {detalleCotizacion.direccion}</>}
+            {detalleCotizacion.ciudad && <> · Ciudad: {detalleCotizacion.ciudad}</>}
+            {detalleCotizacion.version && <> · Versión: {detalleCotizacion.version}</>}
             {" · "}Creada: {formatearFecha(detalleCotizacion.fecha_creacion)}
             {" · "}Actualizada: {formatearFecha(detalleCotizacion.fecha_actualizacion)}
           </p>
@@ -276,6 +350,13 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
                         {item.medida_lineal_1} × {item.medida_lineal_2} {item.unidad_lineal}
                       </>
                     )}
+                    {item.medida_lineal_1 != null && item.medida_lineal_2 == null && (
+                      <>
+                        {" · "}
+                        {item.medida_lineal_1} {item.unidad_lineal}
+                      </>
+                    )}
+                    {item.desperdicio > 0 && <> · Desperdicio: {item.desperdicio}%</>}
                     {" · "}
                     <strong>{formatearCOP(item.valor_parcial)}</strong>
                   </span>
@@ -288,6 +369,13 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
           <div className="modal-acciones">
             <button className="btn btn-secundario" onClick={() => setDetalleCotizacion(null)}>
               Cerrar
+            </button>
+            <button
+              className="btn btn-primario"
+              onClick={() => exportarCotizacion(detalleCotizacion, datos)}
+              title="Descargar el detalle de la cotización en Excel"
+            >
+              Exportar
             </button>
           </div>
         </Modal>

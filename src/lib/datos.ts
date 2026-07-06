@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { calcularValoresDeModulos } from "./calculos";
+import { desperdicioParaArticulo, redondear, valorParcialDeArticulo } from "./calculos";
 import { hoyISO } from "./formato";
 import type {
   Articulo,
@@ -9,6 +9,7 @@ import type {
   ItemCalculado,
   Modulo,
   ModuloItem,
+  Parametros,
   TipoItem,
 } from "../types";
 
@@ -17,56 +18,36 @@ function verificar<T>(resultado: { data: T | null; error: { message: string } | 
   return resultado.data as T;
 }
 
+const PARAMETROS_POR_DEFECTO: Parametros = { desperdicio_area: 0, desperdicio_lineal: 0 };
+
 export async function cargarDatos(): Promise<Datos> {
-  const [articulos, modulos, moduloItems, cotizaciones, cotizacionItems] = await Promise.all([
-    supabase.from("articulos").select("*").order("nombre"),
-    supabase.from("modulos").select("*").order("nombre"),
-    supabase.from("modulo_items").select("*"),
-    supabase.from("cotizaciones").select("*").order("fecha_actualizacion", { ascending: true }).order("id", { ascending: true }),
-    supabase.from("cotizacion_items").select("*"),
-  ]);
+  const [articulos, modulos, moduloItems, cotizaciones, cotizacionItems, parametros] =
+    await Promise.all([
+      supabase.from("articulos").select("*").order("nombre"),
+      supabase.from("modulos").select("*").order("nombre"),
+      supabase.from("modulo_items").select("*"),
+      supabase.from("cotizaciones").select("*").order("fecha_actualizacion", { ascending: true }).order("id", { ascending: true }),
+      supabase.from("cotizacion_items").select("*"),
+      supabase.from("parametros").select("*").maybeSingle(),
+    ]);
   return {
     articulos: verificar<Articulo[]>(articulos),
     modulos: verificar<Modulo[]>(modulos),
     moduloItems: verificar<ModuloItem[]>(moduloItems),
     cotizaciones: verificar<Cotizacion[]>(cotizaciones),
     cotizacionItems: verificar<CotizacionItem[]>(cotizacionItems),
+    parametros: verificar<Parametros | null>(parametros) ?? PARAMETROS_POR_DEFECTO,
   };
 }
 
-/**
- * Recalcula en cascada el valor de los módulos a partir del valor actual de
- * los artículos y persiste solo las filas que cambiaron.
- * Devuelve true si hubo cambios (para volver a cargar los datos).
- */
-export async function sincronizarModulos(datos: Datos): Promise<boolean> {
-  const { valores, parciales } = calcularValoresDeModulos(datos);
+// ---------- Parámetros ----------
 
-  const itemsCambiados = datos.moduloItems.filter(
-    (item) => parciales.get(item.id) !== undefined && parciales.get(item.id) !== item.valor_parcial
+export async function guardarParametros(userId: string, campos: Partial<Parametros>): Promise<void> {
+  verificar(
+    await supabase
+      .from("parametros")
+      .upsert({ user_id: userId, ...campos, updated_at: new Date().toISOString() })
   );
-  const modulosCambiados = datos.modulos.filter(
-    (modulo) => valores.get(modulo.id) !== undefined && valores.get(modulo.id) !== modulo.valor_final
-  );
-  if (itemsCambiados.length === 0 && modulosCambiados.length === 0) return false;
-
-  await Promise.all([
-    ...itemsCambiados.map((item) =>
-      supabase
-        .from("modulo_items")
-        .update({ valor_parcial: parciales.get(item.id) })
-        .eq("id", item.id)
-        .then(verificar)
-    ),
-    ...modulosCambiados.map((modulo) =>
-      supabase
-        .from("modulos")
-        .update({ valor_final: valores.get(modulo.id) })
-        .eq("id", modulo.id)
-        .then(verificar)
-    ),
-  ]);
-  return true;
 }
 
 // ---------- Artículos ----------
@@ -120,6 +101,57 @@ export async function eliminarModulo(id: string): Promise<void> {
   verificar(await supabase.from("modulos").delete().eq("id", id));
 }
 
+/**
+ * Recalcula un módulo con los valores actuales: relee el valor de los
+ * artículos, el % de desperdicio vigente (Parámetros) y el valor final
+ * guardado de los módulos anidados. Actualiza los renglones y el valor
+ * final del módulo. Solo se ejecuta con el botón "Recalcular".
+ */
+export async function recalcularModulo(moduloId: string, datos: Datos): Promise<void> {
+  const items = datos.moduloItems.filter((item) => item.modulo_id === moduloId);
+  const cambios: { id: string; valor_parcial: number; desperdicio: number }[] = [];
+  let total = 0;
+
+  for (const item of items) {
+    let parcial = item.valor_parcial;
+    let desperdicio = item.desperdicio;
+    if (item.tipo_item === "articulo") {
+      const articulo = datos.articulos.find((a) => a.id === item.item_id);
+      if (articulo) {
+        desperdicio = desperdicioParaArticulo(articulo, datos.parametros);
+        parcial = valorParcialDeArticulo(
+          articulo,
+          item.cantidad,
+          item.medida_lineal_1,
+          item.medida_lineal_2,
+          item.unidad_lineal,
+          desperdicio
+        );
+      }
+    } else {
+      const submodulo = datos.modulos.find((m) => m.id === item.item_id);
+      if (submodulo) parcial = redondear(item.cantidad * submodulo.valor_final);
+    }
+    total += parcial;
+    if (parcial !== item.valor_parcial || desperdicio !== item.desperdicio) {
+      cambios.push({ id: item.id, valor_parcial: parcial, desperdicio });
+    }
+  }
+
+  await Promise.all(
+    cambios.map((cambio) =>
+      supabase
+        .from("modulo_items")
+        .update({ valor_parcial: cambio.valor_parcial, desperdicio: cambio.desperdicio })
+        .eq("id", cambio.id)
+        .then(verificar)
+    )
+  );
+  verificar(
+    await supabase.from("modulos").update({ valor_final: redondear(total) }).eq("id", moduloId)
+  );
+}
+
 // ---------- Cotizaciones ----------
 
 export async function proximoIdCotizacion(): Promise<number | null> {
@@ -128,16 +160,25 @@ export async function proximoIdCotizacion(): Promise<number | null> {
   return data as number;
 }
 
+export interface CamposCotizacion {
+  nombre_cliente: string;
+  numero_documento: string;
+  direccion: string;
+  telefono: string;
+  ciudad: string;
+  version: string;
+}
+
 export async function crearCotizacion(
   userId: string,
-  nombreCliente: string,
+  campos: CamposCotizacion,
   valorFinal: number,
   items: ItemCalculado[]
 ): Promise<void> {
   const cotizacion = verificar<Cotizacion>(
     await supabase
       .from("cotizaciones")
-      .insert({ user_id: userId, nombre_cliente: nombreCliente, valor_final: valorFinal })
+      .insert({ user_id: userId, ...campos, valor_final: valorFinal })
       .select()
       .single()
   );
@@ -152,14 +193,14 @@ export async function crearCotizacion(
 
 export async function actualizarCotizacion(
   id: number,
-  nombreCliente: string,
+  campos: CamposCotizacion,
   valorFinal: number,
   items: ItemCalculado[]
 ): Promise<void> {
   verificar(
     await supabase
       .from("cotizaciones")
-      .update({ nombre_cliente: nombreCliente, valor_final: valorFinal, fecha_actualizacion: hoyISO() })
+      .update({ ...campos, valor_final: valorFinal, fecha_actualizacion: hoyISO() })
       .eq("id", id)
   );
   verificar(await supabase.from("cotizacion_items").delete().eq("cotizacion_id", id));

@@ -8,8 +8,10 @@ interface Props {
 }
 
 export default function Modal({ titulo, onCerrar, children, ancho = 560 }: Props) {
+  // El clic fuera del modal no lo cierra: solo se sale con Cancelar,
+  // Guardar o el botón ✕, para no perder lo registrado hasta el momento.
   return (
-    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onCerrar()}>
+    <div className="modal-overlay">
       <div className="modal" style={{ maxWidth: ancho }}>
         <div className="modal-encabezado">
           <h2>{titulo}</h2>
