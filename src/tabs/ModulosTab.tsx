@@ -2,10 +2,10 @@ import { useState, type FormEvent } from "react";
 import Modal from "../components/Modal";
 import { Aviso, Confirmacion } from "../components/Dialogos";
 import RenglonesEditor, { nuevoRenglon } from "../components/RenglonesEditor";
-import DetalleModulo from "../components/DetalleModulo";
+import DetalleModulo, { NodoModulo } from "../components/DetalleModulo";
 import { formatearCOP } from "../lib/formato";
 import { renglonesAItems, sumarParciales, validarRenglones } from "../lib/calculos";
-import { crearModulo, eliminarModulo, usosDeItem } from "../lib/datos";
+import { crearModulo, eliminarModulo, recalcularModulo, usosDeItem } from "../lib/datos";
 import type { Datos, Modulo, RenglonForm } from "../types";
 
 interface Props {
@@ -23,6 +23,9 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
   const [aviso, setAviso] = useState<string | null>(null);
   const [aEliminar, setAEliminar] = useState<Modulo | null>(null);
   const [detalleId, setDetalleId] = useState<string | null>(null);
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [mensajeRecalculo, setMensajeRecalculo] = useState<string | null>(null);
+  const [recalculando, setRecalculando] = useState(false);
 
   const valorFinal = sumarParciales(renglones);
 
@@ -74,6 +77,30 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
     }
   };
 
+  const abrirEditar = (modulo: Modulo) => {
+    setEditandoId(modulo.id);
+    setMensajeRecalculo(null);
+  };
+
+  const recalcular = async () => {
+    if (!editandoId) return;
+    setRecalculando(true);
+    setMensajeRecalculo(null);
+    try {
+      await recalcularModulo(editandoId, datos);
+      await refrescar();
+      setMensajeRecalculo("Módulo recalculado con los valores actuales ✓");
+    } catch (err) {
+      setAviso(err instanceof Error ? err.message : "Error al recalcular el módulo.");
+    } finally {
+      setRecalculando(false);
+    }
+  };
+
+  const moduloEditando = editandoId
+    ? datos.modulos.find((m) => m.id === editandoId) ?? null
+    : null;
+
   return (
     <section>
       <div className="tab-encabezado">
@@ -105,6 +132,12 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
                     onClick={() => setDetalleId(modulo.id)}
                   >
                     Detalle
+                  </button>
+                  <button
+                    className="btn btn-secundario btn-chico"
+                    onClick={() => abrirEditar(modulo)}
+                  >
+                    Editar
                   </button>
                   <button
                     className="btn btn-peligro btn-chico"
@@ -158,6 +191,35 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
 
       {detalleId && (
         <DetalleModulo moduloId={detalleId} datos={datos} onCerrar={() => setDetalleId(null)} />
+      )}
+
+      {moduloEditando && (
+        <Modal
+          titulo={`Editar módulo "${moduloEditando.nombre}"`}
+          onCerrar={() => setEditandoId(null)}
+          ancho={620}
+        >
+          <NodoModulo moduloId={moduloEditando.id} datos={datos} />
+          <div className="total-final">
+            Valor Final: <strong>{formatearCOP(moduloEditando.valor_final)}</strong>
+          </div>
+
+          {mensajeRecalculo && <div className="msg-exito">{mensajeRecalculo}</div>}
+
+          <div className="modal-acciones">
+            <button className="btn btn-secundario" onClick={() => setEditandoId(null)}>
+              Cerrar
+            </button>
+            <button
+              className="btn btn-primario"
+              onClick={recalcular}
+              disabled={recalculando}
+              title="Releer los valores actuales de artículos, módulos anidados y desperdicio"
+            >
+              {recalculando ? "Recalculando…" : "Recalcular"}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {aviso && <Aviso titulo="No se puede eliminar" mensaje={aviso} onCerrar={() => setAviso(null)} />}

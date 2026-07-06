@@ -2,15 +2,19 @@ import type {
   Articulo,
   Datos,
   ItemCalculado,
-  ModuloItem,
+  Parametros,
   RenglonForm,
   UnidadLineal,
 } from "../types";
 
 export const TIPOS_AREA = ["m2", "cm2", "mm2"];
+export const TIPOS_LINEALES = ["m", "cm", "mm"];
 
 export const esTipoArea = (tipoMedida: string): boolean =>
   TIPOS_AREA.includes(tipoMedida.trim().toLowerCase());
+
+export const esTipoLineal = (tipoMedida: string): boolean =>
+  TIPOS_LINEALES.includes(tipoMedida.trim().toLowerCase());
 
 /** Redondeo normal (no truncado) a 0 decimales. */
 export const redondear = (n: number): number => Math.round(n);
@@ -20,6 +24,13 @@ const UNIDAD_LINEAL_DEL_AREA: Record<string, UnidadLineal> = { m2: "m", cm2: "cm
 
 export function precioUnitarioBase(articulo: Articulo): number {
   return articulo.cantidad > 0 ? articulo.valor / articulo.cantidad : 0;
+}
+
+/** Porcentaje de desperdicio que corresponde al artículo según su tipo de medida. */
+export function desperdicioParaArticulo(articulo: Articulo, parametros: Parametros): number {
+  if (esTipoArea(articulo.tipo_medida)) return parametros.desperdicio_area;
+  if (esTipoLineal(articulo.tipo_medida)) return parametros.desperdicio_lineal;
+  return 0;
 }
 
 /** Área de dos medidas lineales, convertida a la unidad de área del artículo (m2, cm2 o mm2). */
@@ -34,84 +45,52 @@ export function areaEnUnidadDelArticulo(
   return medida1 * factor * (medida2 * factor);
 }
 
+/** Longitud de una medida lineal, convertida a la unidad del artículo (m, cm o mm). */
+export function longitudEnUnidadDelArticulo(
+  medida: number,
+  unidad: UnidadLineal,
+  tipoMedidaLineal: string
+): number {
+  const base = tipoMedidaLineal.trim().toLowerCase() as UnidadLineal;
+  return medida * (METROS_POR_UNIDAD[unidad] / METROS_POR_UNIDAD[base]);
+}
+
 /**
  * Valor parcial de un renglón que referencia un artículo.
- * - Tipo no-área: cantidad × precio unitario base.
- * - Tipo área: cantidad × (área calculada / cantidad_x_medida) × precio unitario base.
+ * - Tipo común (und u otro): cantidad × precio unitario base. Sin desperdicio.
+ * - Tipo área (m2/cm2/mm2): cantidad × (área / cantidad_x_medida) × precio unitario base.
+ * - Tipo lineal (m/cm/mm): cantidad × (longitud / cantidad_x_medida) × precio unitario base.
+ * Para área y lineal se suma el desperdicio: el costo base se redondea primero
+ * y el incremento se redondea aparte (ej: $26.667 + 25% = $26.667 + $6.667 = $33.334).
  */
 export function valorParcialDeArticulo(
   articulo: Articulo,
   cantidad: number,
   medida1?: number | null,
   medida2?: number | null,
-  unidad?: UnidadLineal | null
+  unidad?: UnidadLineal | null,
+  desperdicioPct = 0
 ): number {
   const precioBase = precioUnitarioBase(articulo);
+
+  let costoBase: number;
   if (esTipoArea(articulo.tipo_medida)) {
     if (!medida1 || !medida2 || !unidad || articulo.cantidad_x_medida <= 0) return 0;
     const area = areaEnUnidadDelArticulo(medida1, medida2, unidad, articulo.tipo_medida);
-    return redondear(cantidad * (area / articulo.cantidad_x_medida) * precioBase);
+    costoBase = redondear(cantidad * (area / articulo.cantidad_x_medida) * precioBase);
+  } else if (esTipoLineal(articulo.tipo_medida)) {
+    if (!medida1 || !unidad || articulo.cantidad_x_medida <= 0) return 0;
+    const longitud = longitudEnUnidadDelArticulo(medida1, unidad, articulo.tipo_medida);
+    costoBase = redondear(cantidad * (longitud / articulo.cantidad_x_medida) * precioBase);
+  } else {
+    return redondear(cantidad * precioBase);
   }
-  return redondear(cantidad * precioBase);
+
+  const incremento = redondear(costoBase * (desperdicioPct / 100));
+  return costoBase + incremento;
 }
 
-/**
- * Recalcula el valor de todos los módulos a partir del valor actual de los
- * artículos, propagando en cascada a través de módulos anidados.
- * Devuelve el valor final por módulo y el valor parcial por renglón.
- */
-export function calcularValoresDeModulos(datos: Datos): {
-  valores: Map<string, number>;
-  parciales: Map<string, number>;
-} {
-  const itemsPorModulo = new Map<string, ModuloItem[]>();
-  for (const item of datos.moduloItems) {
-    const lista = itemsPorModulo.get(item.modulo_id);
-    if (lista) lista.push(item);
-    else itemsPorModulo.set(item.modulo_id, [item]);
-  }
-  const articulosPorId = new Map(datos.articulos.map((a) => [a.id, a]));
-
-  const valores = new Map<string, number>();
-  const parciales = new Map<string, number>();
-  const visitando = new Set<string>();
-
-  const valorDe = (moduloId: string): number => {
-    const memo = valores.get(moduloId);
-    if (memo !== undefined) return memo;
-    if (visitando.has(moduloId)) return 0; // ciclo: lo impide el trigger de la BD
-    visitando.add(moduloId);
-    let total = 0;
-    for (const item of itemsPorModulo.get(moduloId) ?? []) {
-      let parcial = 0;
-      if (item.tipo_item === "articulo") {
-        const articulo = articulosPorId.get(item.item_id);
-        if (articulo) {
-          parcial = valorParcialDeArticulo(
-            articulo,
-            item.cantidad,
-            item.medida_lineal_1,
-            item.medida_lineal_2,
-            item.unidad_lineal
-          );
-        }
-      } else {
-        parcial = redondear(item.cantidad * valorDe(item.item_id));
-      }
-      parciales.set(item.id, parcial);
-      total += parcial;
-    }
-    visitando.delete(moduloId);
-    const redondeado = redondear(total);
-    valores.set(moduloId, redondeado);
-    return redondeado;
-  };
-
-  for (const modulo of datos.modulos) valorDe(modulo.id);
-  return { valores, parciales };
-}
-
-/** Valor parcial de un renglón del formulario, con los valores actuales de datos. */
+/** Valor parcial de un renglón del formulario, usando el % de desperdicio congelado en el renglón. */
 export function calcularParcialRenglon(renglon: RenglonForm, datos: Datos): number {
   if (!renglon.item_id || !renglon.tipo_item) return 0;
   const cantidad = Number(renglon.cantidad);
@@ -129,8 +108,23 @@ export function calcularParcialRenglon(renglon: RenglonForm, datos: Datos): numb
     cantidad,
     Number(renglon.medida_lineal_1) || null,
     Number(renglon.medida_lineal_2) || null,
-    renglon.unidad_lineal
+    renglon.unidad_lineal,
+    renglon.desperdicio
   );
+}
+
+/**
+ * Actualiza en el renglón el % de desperdicio vigente y recalcula su valor
+ * parcial (se usa al presionar "Recalcular").
+ */
+export function recalcularRenglon(renglon: RenglonForm, datos: Datos): RenglonForm {
+  let desperdicio = 0;
+  if (renglon.tipo_item === "articulo") {
+    const articulo = datos.articulos.find((a) => a.id === renglon.item_id);
+    if (articulo) desperdicio = desperdicioParaArticulo(articulo, datos.parametros);
+  }
+  const actualizado = { ...renglon, desperdicio };
+  return { ...actualizado, valor_parcial: calcularParcialRenglon(actualizado, datos) };
 }
 
 /** Valida los renglones del formulario. Devuelve un mensaje de error o null si todo está bien. */
@@ -153,6 +147,12 @@ export function validarRenglones(renglones: RenglonForm[], datos: Datos): string
           return `Renglón ${n}: ingrese las dos medidas lineales (mayores que cero).`;
         }
       }
+      if (articulo && esTipoLineal(articulo.tipo_medida)) {
+        const m1 = Number(r.medida_lineal_1);
+        if (!r.medida_lineal_1 || Number.isNaN(m1) || m1 <= 0) {
+          return `Renglón ${n}: ingrese la medida lineal (mayor que cero).`;
+        }
+      }
     }
   }
   return null;
@@ -164,14 +164,16 @@ export function renglonesAItems(renglones: RenglonForm[], datos: Datos): ItemCal
     const articulo =
       r.tipo_item === "articulo" ? datos.articulos.find((a) => a.id === r.item_id) : undefined;
     const esArea = articulo ? esTipoArea(articulo.tipo_medida) : false;
+    const esLineal = articulo ? esTipoLineal(articulo.tipo_medida) : false;
     return {
       tipo_item: r.tipo_item as ItemCalculado["tipo_item"],
       item_id: r.item_id,
       cantidad: Number(r.cantidad),
-      medida_lineal_1: esArea ? Number(r.medida_lineal_1) : null,
+      medida_lineal_1: esArea || esLineal ? Number(r.medida_lineal_1) : null,
       medida_lineal_2: esArea ? Number(r.medida_lineal_2) : null,
-      unidad_lineal: esArea ? r.unidad_lineal : null,
-      valor_parcial: calcularParcialRenglon(r, datos),
+      unidad_lineal: esArea || esLineal ? r.unidad_lineal : null,
+      desperdicio: esArea || esLineal ? r.desperdicio : 0,
+      valor_parcial: r.valor_parcial,
     };
   });
 }

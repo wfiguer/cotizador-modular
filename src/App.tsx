@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase, supabaseConfigurado } from "./lib/supabase";
-import { cargarDatos, sincronizarModulos } from "./lib/datos";
+import { cargarDatos } from "./lib/datos";
 import AuthScreen from "./components/AuthScreen";
+import ModalConfiguracion from "./components/ModalConfiguracion";
 import ArticulosTab from "./tabs/ArticulosTab";
 import ModulosTab from "./tabs/ModulosTab";
 import CotizacionesTab from "./tabs/CotizacionesTab";
@@ -41,13 +42,13 @@ function AppPrincipal({ usuario }: { usuario: User }) {
   const [datos, setDatos] = useState<Datos | null>(null);
   const [pestania, setPestania] = useState<Pestania>("articulos");
   const [error, setError] = useState<string | null>(null);
+  const [configAbierta, setConfigAbierta] = useState(false);
 
+  // Los módulos y cotizaciones quedan congelados: solo se actualizan con
+  // el botón "Recalcular" de cada uno, nunca automáticamente.
   const refrescar = useCallback(async () => {
     try {
-      let d = await cargarDatos();
-      // Recálculo automático en cascada de los módulos (sección 3 del plan)
-      if (await sincronizarModulos(d)) d = await cargarDatos();
-      setDatos(d);
+      setDatos(await cargarDatos());
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar los datos.");
@@ -75,6 +76,9 @@ function AppPrincipal({ usuario }: { usuario: User }) {
         </nav>
         <div className="app-usuario">
           <span>{usuario.email}</span>
+          <button className="btn btn-secundario btn-chico" onClick={() => setConfigAbierta(true)}>
+            Configuración
+          </button>
           <button className="btn btn-secundario btn-chico" onClick={() => supabase.auth.signOut()}>
             Cerrar sesión
           </button>
@@ -94,6 +98,15 @@ function AppPrincipal({ usuario }: { usuario: User }) {
           <CotizacionesTab datos={datos} userId={usuario.id} refrescar={refrescar} />
         )}
       </main>
+
+      {configAbierta && datos && (
+        <ModalConfiguracion
+          userId={usuario.id}
+          parametros={datos.parametros}
+          refrescar={refrescar}
+          onCerrar={() => setConfigAbierta(false)}
+        />
+      )}
     </div>
   );
 }

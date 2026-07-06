@@ -52,6 +52,7 @@ create table if not exists public.modulo_items (
   medida_lineal_1 numeric,
   medida_lineal_2 numeric,
   unidad_lineal text check (unidad_lineal in ('m', 'cm', 'mm')),
+  desperdicio numeric not null default 0,
   valor_parcial numeric not null default 0
 );
 
@@ -99,6 +100,11 @@ create table if not exists public.cotizaciones (
   fecha_creacion date not null default current_date,
   fecha_actualizacion date not null default current_date,
   nombre_cliente text not null,
+  numero_documento text not null default '',
+  direccion text not null default '',
+  telefono text not null default '',
+  ciudad text not null default '',
+  version text not null default '',
   valor_final numeric not null default 0,
   created_at timestamptz not null default now()
 );
@@ -113,6 +119,7 @@ create table if not exists public.cotizacion_items (
   medida_lineal_1 numeric,
   medida_lineal_2 numeric,
   unidad_lineal text check (unidad_lineal in ('m', 'cm', 'mm')),
+  desperdicio numeric not null default 0,
   valor_parcial numeric not null default 0
 );
 
@@ -140,12 +147,26 @@ end $$;
 
 grant execute on function public.proximo_id_cotizacion() to authenticated;
 
+-- ---------- Tabla: parametros ----------
+-- Porcentajes de desperdicio por usuario (Configuración → Parámetros)
+create table if not exists public.parametros (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  desperdicio_area numeric not null default 0 check (desperdicio_area >= 0),
+  desperdicio_lineal numeric not null default 0 check (desperdicio_lineal >= 0),
+  updated_at timestamptz not null default now()
+);
+
 -- ---------- Políticas RLS ----------
 alter table public.articulos enable row level security;
 alter table public.modulos enable row level security;
 alter table public.modulo_items enable row level security;
 alter table public.cotizaciones enable row level security;
 alter table public.cotizacion_items enable row level security;
+alter table public.parametros enable row level security;
+
+drop policy if exists "parametros_por_usuario" on public.parametros;
+create policy "parametros_por_usuario" on public.parametros
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 drop policy if exists "articulos_por_usuario" on public.articulos;
 create policy "articulos_por_usuario" on public.articulos

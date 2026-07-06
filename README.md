@@ -25,11 +25,15 @@ Si `.env.local` no está configurado, la app muestra una pantalla con estas mism
 
 - **Precio unitario base** = `valor / cantidad` del artículo.
 - **Artículos de área** (`tipo_medida` = `m2`, `cm2` o `mm2`): el renglón pide dos medidas lineales con su unidad (m, cm o mm); `valor_parcial = cantidad × (área / cantidad_x_medida) × precio_unitario_base`, con el área convertida a la unidad del artículo.
+- **Artículos lineales** (`tipo_medida` = `m`, `cm` o `mm`): el renglón pide una sola medida con su unidad; `valor_parcial = cantidad × (longitud / cantidad_x_medida) × precio_unitario_base`.
+- **Desperdicio** (Configuración → Parámetros): dos porcentajes por usuario, uno para artículos de área y otro para lineales. En los renglones de esos tipos, el costo base redondeado se incrementa con el desperdicio redondeado aparte (ej: `$26.667 + 25% = $26.667 + $6.667 = $33.334`). El % aplicado queda congelado en cada renglón.
 - **Redondeo** normal a 0 decimales en cada valor parcial y final. Formato `$26.667`.
-- **Módulos → dinámicos**: al cambiar el `valor` de un artículo, todos los módulos que dependen de él (a cualquier nivel de anidamiento) se recalculan en cascada de forma automática y transparente.
-- **Cotizaciones → snapshot**: el valor se congela al guardar. El botón **Recalcular** (solo en el modal de Editar) relee los valores actuales; los cambios se persisten al presionar **Guardar**.
-- **Bloqueo de eliminación** de artículos y módulos en uso, con el listado de módulos/cotizaciones que los usan.
+- **Módulos y cotizaciones → snapshot**: los valores se congelan al guardar y **nada se recalcula automáticamente**. Todo recálculo es manual con el botón **Recalcular**: en módulos, dentro del modal Editar (persiste de inmediato y confirma con mensaje); en cotizaciones, dentro del modal Editar (muestra "Recalculado. Presione Guardar para aplicar los cambios." y persiste al Guardar). Recalcular relee el valor actual de los artículos, el valor final guardado de los módulos anidados y el % de desperdicio vigente.
+- **Bloqueo de eliminación** de artículos y módulos en uso, con el listado de módulos/cotizaciones que los usan. Las cotizaciones siempre se pueden eliminar (con confirmación).
 - **Referencias circulares** entre módulos bloqueadas también en la base de datos (trigger `chequear_ciclo_modulo`).
+- **Configuración**: cambio de contraseña (patrón de mis-gastos) y parámetros de desperdicio.
+
+> Nota de migración: si la base de datos se creó con una versión anterior de `schema.sql`, ejecutar `supabase/migracion-01-desperdicio.sql` para agregar la tabla `parametros` y la columna `desperdicio`.
 
 ## Decisiones tomadas sobre los supuestos abiertos del plan
 

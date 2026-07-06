@@ -1,4 +1,9 @@
-import { calcularParcialRenglon, esTipoArea } from "../lib/calculos";
+import {
+  calcularParcialRenglon,
+  desperdicioParaArticulo,
+  esTipoArea,
+  esTipoLineal,
+} from "../lib/calculos";
 import { formatearCOP } from "../lib/formato";
 import type { Datos, RenglonForm, TipoItem, UnidadLineal } from "../types";
 
@@ -14,6 +19,7 @@ export function nuevoRenglon(): RenglonForm {
     medida_lineal_1: "",
     medida_lineal_2: "",
     unidad_lineal: "m",
+    desperdicio: 0,
     valor_parcial: 0,
   };
 }
@@ -44,15 +50,24 @@ export default function RenglonesEditor({ datos, renglones, onChange, onVerDetal
 
   const cambiarItem = (indice: number, valor: string) => {
     if (!valor) {
-      actualizar(indice, { tipo_item: "", item_id: "", medida_lineal_1: "", medida_lineal_2: "" });
+      actualizar(indice, {
+        tipo_item: "",
+        item_id: "",
+        medida_lineal_1: "",
+        medida_lineal_2: "",
+        desperdicio: 0,
+      });
       return;
     }
     const [tipo, id] = valor.split(":");
+    // El % de desperdicio vigente queda congelado en el renglón al seleccionar el artículo
+    const articulo = tipo === "articulo" ? datos.articulos.find((a) => a.id === id) : undefined;
     actualizar(indice, {
       tipo_item: tipo as TipoItem,
       item_id: id,
       medida_lineal_1: "",
       medida_lineal_2: "",
+      desperdicio: articulo ? desperdicioParaArticulo(articulo, datos.parametros) : 0,
     });
   };
 
@@ -68,6 +83,7 @@ export default function RenglonesEditor({ datos, renglones, onChange, onVerDetal
             ? datos.articulos.find((a) => a.id === renglon.item_id)
             : undefined;
         const esArea = articulo ? esTipoArea(articulo.tipo_medida) : false;
+        const esLineal = articulo ? esTipoLineal(articulo.tipo_medida) : false;
 
         return (
           <div className="renglon" key={renglon.clave}>
@@ -158,6 +174,35 @@ export default function RenglonesEditor({ datos, renglones, onChange, onVerDetal
               </div>
             )}
 
+            {esLineal && articulo && (
+              <div className="renglon-fila renglon-medidas">
+                <label className="campo-inline">
+                  Medida
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={renglon.medida_lineal_1}
+                    onChange={(e) => actualizar(i, { medida_lineal_1: e.target.value })}
+                  />
+                </label>
+                <label className="campo-inline">
+                  Unidad
+                  <select
+                    value={renglon.unidad_lineal}
+                    onChange={(e) =>
+                      actualizar(i, { unidad_lineal: e.target.value as UnidadLineal })
+                    }
+                  >
+                    <option value="m">m</option>
+                    <option value="cm">cm</option>
+                    <option value="mm">mm</option>
+                  </select>
+                </label>
+                <span className="renglon-nota">Artículo en {articulo.tipo_medida}</span>
+              </div>
+            )}
+
             <div className="renglon-fila renglon-parcial">
               {renglon.tipo_item === "modulo" && renglon.item_id && (
                 <button
@@ -167,6 +212,11 @@ export default function RenglonesEditor({ datos, renglones, onChange, onVerDetal
                 >
                   Detalle
                 </button>
+              )}
+              {(esArea || esLineal) && (
+                <span className="etiqueta-parcial">
+                  Desperdicio: <strong>{renglon.desperdicio}%</strong>
+                </span>
               )}
               <span className="etiqueta-parcial">
                 Valor Parcial: <strong>{formatearCOP(renglon.valor_parcial)}</strong>

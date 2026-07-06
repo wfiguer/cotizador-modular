@@ -8,6 +8,8 @@ const traducirError = (mensaje: string): string => {
     return "La contraseña debe tener al menos 6 caracteres.";
   if (mensaje.includes("Unable to validate email address"))
     return "El correo no tiene un formato válido.";
+  if (mensaje.includes("is invalid"))
+    return "Supabase rechazó ese correo. Use una dirección de correo real.";
   if (mensaje.includes("Email not confirmed")) return "Confirme su correo antes de ingresar.";
   if (mensaje.includes("rate limit")) return "Demasiados intentos. Espere un momento.";
   return "Ocurrió un error. Intente de nuevo.";

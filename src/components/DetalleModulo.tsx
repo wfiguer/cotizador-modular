@@ -1,6 +1,5 @@
 import Modal from "./Modal";
 import { formatearCOP } from "../lib/formato";
-import { esTipoArea } from "../lib/calculos";
 import type { Datos } from "../types";
 
 interface PropsNodo {
@@ -8,7 +7,7 @@ interface PropsNodo {
   datos: Datos;
 }
 
-function NodoModulo({ moduloId, datos }: PropsNodo) {
+export function NodoModulo({ moduloId, datos }: PropsNodo) {
   const items = datos.moduloItems.filter((item) => item.modulo_id === moduloId);
 
   return (
@@ -17,18 +16,24 @@ function NodoModulo({ moduloId, datos }: PropsNodo) {
         if (item.tipo_item === "articulo") {
           const articulo = datos.articulos.find((a) => a.id === item.item_id);
           if (!articulo) return null;
-          const esArea = esTipoArea(articulo.tipo_medida);
           return (
             <li key={item.id} className="arbol-articulo">
               <span className="arbol-nombre">{articulo.nombre}</span>
               <span className="arbol-datos">
                 Cantidad: {item.cantidad}
-                {esArea && item.medida_lineal_1 && item.medida_lineal_2 && (
+                {item.medida_lineal_1 != null && item.medida_lineal_2 != null && (
                   <>
                     {" · "}
                     {item.medida_lineal_1} × {item.medida_lineal_2} {item.unidad_lineal}
                   </>
                 )}
+                {item.medida_lineal_1 != null && item.medida_lineal_2 == null && (
+                  <>
+                    {" · "}
+                    {item.medida_lineal_1} {item.unidad_lineal}
+                  </>
+                )}
+                {item.desperdicio > 0 && <> · Desperdicio: {item.desperdicio}%</>}
                 {" · "}
                 <strong>{formatearCOP(item.valor_parcial)}</strong>
               </span>
