@@ -108,6 +108,8 @@ create table if not exists public.cotizaciones (
   valor_final numeric not null default 0,
   -- Snapshot del % de utilidad con el que se guardó la cotización
   utilidad numeric not null default 0,
+  -- Una cotización congelada ya no se puede volver a editar
+  congelada boolean not null default false,
   created_at timestamptz not null default now()
 );
 

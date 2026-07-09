@@ -1,10 +1,14 @@
 import { useState } from "react";
 import Modal from "./Modal";
+import ToggleSwitch from "./ToggleSwitch";
 import { supabase } from "../lib/supabase";
 import { guardarParametros } from "../lib/datos";
-import type { Parametros } from "../types";
+import { redondear, valorFinalConUtilidad } from "../lib/calculos";
+import { formatearCOP } from "../lib/formato";
+import { aplicarTema, temaInicial, type Tema } from "../lib/tema";
+import type { Cotizacion, Parametros } from "../types";
 
-type Vista = "menu" | "password" | "parametros";
+type Vista = "menu" | "password" | "parametros" | "perfil";
 
 interface Mensaje {
   tipo: "ok" | "error";
@@ -13,12 +17,22 @@ interface Mensaje {
 
 interface Props {
   userId: string;
+  /** Email del usuario autenticado, usado para verificar su contraseña en Perfil. */
+  email: string;
   parametros: Parametros;
+  cotizaciones: Cotizacion[];
   refrescar: () => Promise<void>;
   onCerrar: () => void;
 }
 
-export default function ModalConfiguracion({ userId, parametros, refrescar, onCerrar }: Props) {
+export default function ModalConfiguracion({
+  userId,
+  email,
+  parametros,
+  cotizaciones,
+  refrescar,
+  onCerrar,
+}: Props) {
   const [vista, setVista] = useState<Vista>("menu");
 
   // --- Cambiar contraseña ---
@@ -38,6 +52,29 @@ export default function ModalConfiguracion({ userId, parametros, refrescar, onCe
   const [mensajeUtilidad, setMensajeUtilidad] = useState<Mensaje | null>(null);
   const [guardandoParametro, setGuardandoParametro] = useState(false);
 
+  // --- Perfil ---
+  const [mostrarUtilidadFinal, setMostrarUtilidadFinal] = useState(false);
+  const [pidiendoPassword, setPidiendoPassword] = useState(false);
+  const [passwordPerfil, setPasswordPerfil] = useState("");
+  const [mensajePerfil, setMensajePerfil] = useState<Mensaje | null>(null);
+  const [verificandoPassword, setVerificandoPassword] = useState(false);
+
+  // Suma de (Valor Final Con Utilidad − Valor Final) solo de las cotizaciones congeladas
+  const utilidadFinal = redondear(
+    cotizaciones
+      .filter((c) => c.congelada)
+      .reduce((acc, c) => acc + (valorFinalConUtilidad(c.valor_final, c.utilidad) - c.valor_final), 0)
+  );
+
+  // --- Tema claro/oscuro ---
+  const [tema, setTema] = useState<Tema>(temaInicial);
+
+  const cambiarTema = (oscuro: boolean) => {
+    const nuevo: Tema = oscuro ? "oscuro" : "claro";
+    setTema(nuevo);
+    aplicarTema(nuevo);
+  };
+
   const volver = () => {
     setVista("menu");
     setNuevaPassword("");
@@ -48,6 +85,46 @@ export default function ModalConfiguracion({ userId, parametros, refrescar, onCe
     setMensajeArea(null);
     setMensajeLineal(null);
     setMensajeUtilidad(null);
+    setMostrarUtilidadFinal(false);
+    setPidiendoPassword(false);
+    setPasswordPerfil("");
+    setMensajePerfil(null);
+  };
+
+  const alternarUtilidadFinal = () => {
+    setMensajePerfil(null);
+    if (mostrarUtilidadFinal) {
+      // Ocultar no requiere contraseña
+      setMostrarUtilidadFinal(false);
+      setPidiendoPassword(false);
+      setPasswordPerfil("");
+    } else {
+      // Mostrar requiere verificar la contraseña del usuario
+      setPidiendoPassword(true);
+    }
+  };
+
+  const verificarPassword = async () => {
+    setMensajePerfil(null);
+    if (!passwordPerfil) {
+      setMensajePerfil({ tipo: "error", texto: "Ingrese su contraseña" });
+      return;
+    }
+    setVerificandoPassword(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password: passwordPerfil });
+      if (error) throw new Error("Contraseña incorrecta");
+      setMostrarUtilidadFinal(true);
+      setPidiendoPassword(false);
+      setPasswordPerfil("");
+    } catch (err) {
+      setMensajePerfil({
+        tipo: "error",
+        texto: err instanceof Error ? err.message : "No se pudo verificar la contraseña",
+      });
+    } finally {
+      setVerificandoPassword(false);
+    }
   };
 
   const guardarPassword = async () => {
@@ -123,7 +200,92 @@ export default function ModalConfiguracion({ userId, parametros, refrescar, onCe
           <button className="btn btn-secundario" onClick={() => setVista("parametros")}>
             ⚙️ Parámetros
           </button>
+          <button className="btn btn-secundario" onClick={() => setVista("perfil")}>
+            👤 Perfil
+          </button>
           <div className="modal-acciones">
+            <button className="btn btn-secundario" onClick={onCerrar}>
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {vista === "perfil" && (
+        <div className="form-vertical">
+          <h3 className="config-subtitulo">Perfil</h3>
+
+          <div className="fila-parametro">
+            <span className="parametro-etiqueta">Utilidad Final</span>
+            <div className="parametro-controles">
+              <strong className="valor-perfil">
+                {mostrarUtilidadFinal ? formatearCOP(utilidadFinal) : "••••••••"}
+              </strong>
+              <ToggleSwitch
+                checked={mostrarUtilidadFinal}
+                onChange={alternarUtilidadFinal}
+                etiqueta={
+                  mostrarUtilidadFinal
+                    ? "Ocultar el valor de Utilidad Final"
+                    : "Mostrar el valor de Utilidad Final"
+                }
+              />
+            </div>
+          </div>
+
+          {pidiendoPassword && (
+            <div className="fila-parametro">
+              <span className="parametro-etiqueta">Ingrese su contraseña para mostrar el valor</span>
+              <div className="parametro-controles">
+                <input
+                  type="password"
+                  placeholder="Contraseña"
+                  value={passwordPerfil}
+                  onChange={(e) => setPasswordPerfil(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && verificarPassword()}
+                  autoComplete="current-password"
+                  autoFocus
+                />
+                <button
+                  className="btn btn-primario btn-chico"
+                  onClick={verificarPassword}
+                  disabled={verificandoPassword}
+                >
+                  {verificandoPassword ? "Verificando…" : "Verificar"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {mensajePerfil && (
+            <div className={mensajePerfil.tipo === "ok" ? "msg-exito" : "msg-error"}>
+              {mensajePerfil.texto}
+            </div>
+          )}
+
+          <div className="fila-parametro">
+            <span className="parametro-etiqueta">Tema de la aplicación</span>
+            <div className="parametro-controles">
+              <strong className="valor-perfil">
+                {tema === "oscuro" ? "🌙 Modo Oscuro" : "☀️ Modo Claro"}
+              </strong>
+              <ToggleSwitch
+                checked={tema === "oscuro"}
+                onChange={cambiarTema}
+                etiqueta={tema === "oscuro" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+              />
+            </div>
+          </div>
+
+          <p className="campo-ayuda">
+            Utilidad Final: suma de «Valor Final Con Utilidad − Valor Final» de las cotizaciones
+            congeladas. El tema elegido se recuerda en este navegador.
+          </p>
+
+          <div className="modal-acciones">
+            <button className="btn btn-secundario" onClick={volver}>
+              ← Volver
+            </button>
             <button className="btn btn-secundario" onClick={onCerrar}>
               Cerrar
             </button>

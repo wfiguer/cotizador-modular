@@ -9,6 +9,26 @@
   --acento-oscuro: #2b2410;
   --peligro: #e06c6c;
   --exito: #6cc78a;
+  --peligro-fondo: #3a1d1d;
+  --exito-fondo: #1a3a24;
+  --aviso-fondo: #33290f;
+}
+
+/* Modo claro: se activa con data-tema="claro" en <html> (Configuración → Perfil) */
+:root[data-tema="claro"] {
+  --fondo: #f2f3f7;
+  --superficie: #ffffff;
+  --superficie-alta: #e9ecf3;
+  --borde: #d3d8e4;
+  --texto: #1d2130;
+  --texto-suave: #5c6478;
+  --acento: #e8b64c;
+  --acento-oscuro: #2b2410;
+  --peligro: #c04747;
+  --exito: #2f9257;
+  --peligro-fondo: #fbeaea;
+  --exito-fondo: #e6f5eb;
+  --aviso-fondo: #faf1d9;
 }
 
 * {
@@ -61,7 +81,7 @@ h2 {
 }
 
 .btn-peligro {
-  background: #3a1d1d;
+  background: var(--peligro-fondo);
   color: var(--peligro);
   border: 1px solid var(--peligro);
 }
@@ -285,6 +305,73 @@ select:focus {
 
 .tabla .num {
   text-align: right;
+}
+
+/* ---------- Toggle switch ---------- */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch-deslizador {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  background: var(--borde);
+  border-radius: 24px;
+  transition: background 0.2s;
+}
+
+.switch-deslizador::before {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  top: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.switch input:checked + .switch-deslizador {
+  background: #337a4d;
+}
+
+.switch input:checked + .switch-deslizador::before {
+  transform: translateX(20px);
+}
+
+/* Accesibilidad: anillo de foco visible al navegar con teclado */
+.switch input:focus-visible + .switch-deslizador {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+}
+
+.switch input:disabled + .switch-deslizador {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Valor de Utilidad Final en Configuración → Perfil */
+.valor-perfil {
+  min-width: 120px;
+  text-align: right;
+}
+
+/* Renglón de cotización congelada (ya no editable) */
+.tabla .fila-congelada td {
+  background: #337a4d;
+  color: #fff;
 }
 
 .tabla .acciones {
@@ -551,7 +638,7 @@ select:focus {
 
 /* ---------- Mensajes ---------- */
 .msg-error {
-  background: #3a1a1a;
+  background: var(--peligro-fondo);
   border: 1px solid var(--peligro);
   color: var(--peligro);
   border-radius: 10px;
@@ -560,7 +647,7 @@ select:focus {
 }
 
 .msg-exito {
-  background: #1a3a24;
+  background: var(--exito-fondo);
   border: 1px solid var(--exito);
   color: var(--exito);
   border-radius: 10px;
@@ -569,7 +656,7 @@ select:focus {
 }
 
 .msg-aviso {
-  background: #33290f;
+  background: var(--aviso-fondo);
   border: 1px solid var(--acento);
   color: var(--acento);
   border-radius: 10px;
