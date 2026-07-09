@@ -32,8 +32,10 @@ export default function ModalConfiguracion({ userId, parametros, refrescar, onCe
   // --- Parámetros ---
   const [desperdicioArea, setDesperdicioArea] = useState(String(parametros.desperdicio_area));
   const [desperdicioLineal, setDesperdicioLineal] = useState(String(parametros.desperdicio_lineal));
+  const [utilidad, setUtilidad] = useState(String(parametros.utilidad));
   const [mensajeArea, setMensajeArea] = useState<Mensaje | null>(null);
   const [mensajeLineal, setMensajeLineal] = useState<Mensaje | null>(null);
+  const [mensajeUtilidad, setMensajeUtilidad] = useState<Mensaje | null>(null);
   const [guardandoParametro, setGuardandoParametro] = useState(false);
 
   const volver = () => {
@@ -45,6 +47,7 @@ export default function ModalConfiguracion({ userId, parametros, refrescar, onCe
     setMostrarConfirmar(false);
     setMensajeArea(null);
     setMensajeLineal(null);
+    setMensajeUtilidad(null);
   };
 
   const guardarPassword = async () => {
@@ -78,9 +81,11 @@ export default function ModalConfiguracion({ userId, parametros, refrescar, onCe
     }
   };
 
-  const guardarParametro = async (campo: "desperdicio_area" | "desperdicio_lineal") => {
-    const texto = campo === "desperdicio_area" ? desperdicioArea : desperdicioLineal;
-    const setMensaje = campo === "desperdicio_area" ? setMensajeArea : setMensajeLineal;
+  const guardarParametro = async (campo: "desperdicio_area" | "desperdicio_lineal" | "utilidad") => {
+    const texto =
+      campo === "desperdicio_area" ? desperdicioArea : campo === "desperdicio_lineal" ? desperdicioLineal : utilidad;
+    const setMensaje =
+      campo === "desperdicio_area" ? setMensajeArea : campo === "desperdicio_lineal" ? setMensajeLineal : setMensajeUtilidad;
     setMensaje(null);
     const valor = Number(texto);
     if (texto === "" || Number.isNaN(valor) || valor < 0) {
@@ -91,7 +96,13 @@ export default function ModalConfiguracion({ userId, parametros, refrescar, onCe
     try {
       await guardarParametros(userId, { [campo]: valor });
       await refrescar();
-      setMensaje({ tipo: "ok", texto: `Desperdicio actualizado al ${valor}% ✓` });
+      setMensaje({
+        tipo: "ok",
+        texto:
+          campo === "utilidad"
+            ? `Utilidad actualizada al ${valor}% ✓`
+            : `Desperdicio actualizado al ${valor}% ✓`,
+      });
     } catch (err) {
       setMensaje({
         tipo: "error",
@@ -235,6 +246,32 @@ export default function ModalConfiguracion({ userId, parametros, refrescar, onCe
           {mensajeLineal && (
             <div className={mensajeLineal.tipo === "ok" ? "msg-exito" : "msg-error"}>
               {mensajeLineal.texto}
+            </div>
+          )}
+
+          <div className="fila-parametro">
+            <span className="parametro-etiqueta">Utilidad aplicada a las cotizaciones</span>
+            <div className="parametro-controles">
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={utilidad}
+                onChange={(e) => setUtilidad(e.target.value)}
+              />
+              <span className="parametro-pct">%</span>
+              <button
+                className="btn btn-primario btn-chico"
+                onClick={() => guardarParametro("utilidad")}
+                disabled={guardandoParametro}
+              >
+                Guardar
+              </button>
+            </div>
+          </div>
+          {mensajeUtilidad && (
+            <div className={mensajeUtilidad.tipo === "ok" ? "msg-exito" : "msg-error"}>
+              {mensajeUtilidad.texto}
             </div>
           )}
 

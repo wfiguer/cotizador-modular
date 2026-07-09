@@ -182,3 +182,12 @@ export function renglonesAItems(renglones: RenglonForm[], datos: Datos): ItemCal
 export function sumarParciales(renglones: { valor_parcial: number }[]): number {
   return redondear(renglones.reduce((acc, r) => acc + r.valor_parcial, 0));
 }
+
+/**
+ * Valor Final Con Utilidad: el Valor Final más el % de utilidad aplicado
+ * sobre él (mismo esquema de redondeo que el desperdicio: el incremento
+ * se redondea aparte y se suma al valor base).
+ */
+export function valorFinalConUtilidad(valorFinal: number, utilidadPct: number): number {
+  return valorFinal + redondear(valorFinal * (utilidadPct / 100));
+}

@@ -24,15 +24,18 @@ interface PropsConfirmacion {
   titulo?: string;
   mensaje: string;
   textoConfirmar?: string;
+  /** "peligro" (rojo, por defecto) para eliminar; "primario" para confirmaciones de guardado. */
+  variante?: "peligro" | "primario";
   onConfirmar: () => void;
   onCancelar: () => void;
 }
 
-/** Confirmación con dos botones (por ejemplo, antes de eliminar). */
+/** Confirmación con dos botones (por ejemplo, antes de eliminar o de guardar). */
 export function Confirmacion({
   titulo = "Confirmar",
   mensaje,
   textoConfirmar = "Eliminar",
+  variante = "peligro",
   onConfirmar,
   onCancelar,
 }: PropsConfirmacion) {
@@ -43,7 +46,10 @@ export function Confirmacion({
         <button className="btn btn-secundario" onClick={onCancelar}>
           Cancelar
         </button>
-        <button className="btn btn-peligro" onClick={onConfirmar}>
+        <button
+          className={`btn ${variante === "primario" ? "btn-primario" : "btn-peligro"}`}
+          onClick={onConfirmar}
+        >
           {textoConfirmar}
         </button>
       </div>
