@@ -102,7 +102,9 @@ function AppPrincipal({ usuario }: { usuario: User }) {
       {configAbierta && datos && (
         <ModalConfiguracion
           userId={usuario.id}
+          email={usuario.email ?? ""}
           parametros={datos.parametros}
+          cotizaciones={datos.cotizaciones}
           refrescar={refrescar}
           onCerrar={() => setConfigAbierta(false)}
         />

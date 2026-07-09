@@ -260,6 +260,11 @@ export async function actualizarCotizacion(
   );
 }
 
+/** Marca la cotización como congelada; desde entonces ya no se puede editar. */
+export async function congelarCotizacion(id: number): Promise<void> {
+  verificar(await supabase.from("cotizaciones").update({ congelada: true }).eq("id", id));
+}
+
 export async function eliminarCotizacion(id: number): Promise<void> {
   verificar(await supabase.from("cotizaciones").delete().eq("id", id));
 }

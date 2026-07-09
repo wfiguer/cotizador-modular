@@ -48,6 +48,8 @@ export interface Cotizacion {
   valor_final: number;
   /** Snapshot del % de utilidad con el que se guardó la cotización. */
   utilidad: number;
+  /** Una cotización congelada ya no se puede volver a editar. */
+  congelada: boolean;
   created_at: string;
 }
 

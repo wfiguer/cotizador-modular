@@ -13,6 +13,7 @@ import {
 } from "../lib/calculos";
 import {
   actualizarCotizacion,
+  congelarCotizacion,
   crearCotizacion,
   eliminarCotizacion,
   proximoIdCotizacion,
@@ -31,6 +32,7 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
   const [cotizacionActual, setCotizacionActual] = useState<Cotizacion | null>(null);
   const [detalleCotizacion, setDetalleCotizacion] = useState<Cotizacion | null>(null);
   const [aEliminar, setAEliminar] = useState<Cotizacion | null>(null);
+  const [aCongelar, setACongelar] = useState<Cotizacion | null>(null);
   const [detalleModuloId, setDetalleModuloId] = useState<string | null>(null);
 
   const clienteVacio = {
@@ -144,6 +146,16 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
     }
   };
 
+  const confirmarCongelar = async () => {
+    if (!aCongelar) return;
+    try {
+      await congelarCotizacion(aCongelar.id);
+      await refrescar();
+    } finally {
+      setACongelar(null);
+    }
+  };
+
   const confirmarEliminar = async () => {
     if (!aEliminar) return;
     try {
@@ -180,18 +192,22 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
               <th>Nombre Cliente</th>
               <th>N° Documento</th>
               <th className="num">Valor Final</th>
+              <th className="num">Valor Final Con Utilidad</th>
               <th className="acciones">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {datos.cotizaciones.map((cotizacion) => (
-              <tr key={cotizacion.id}>
+              <tr key={cotizacion.id} className={cotizacion.congelada ? "fila-congelada" : undefined}>
                 <td className="num">{cotizacion.id}</td>
                 <td>{formatearFecha(cotizacion.fecha_creacion)}</td>
                 <td>{formatearFecha(cotizacion.fecha_actualizacion)}</td>
                 <td>{cotizacion.nombre_cliente}</td>
                 <td>{cotizacion.numero_documento}</td>
                 <td className="num">{formatearCOP(cotizacion.valor_final)}</td>
+                <td className="num">
+                  {formatearCOP(valorFinalConUtilidad(cotizacion.valor_final, cotizacion.utilidad))}
+                </td>
                 <td className="acciones">
                   <button
                     className="btn btn-secundario btn-chico"
@@ -202,8 +218,18 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
                   <button
                     className="btn btn-secundario btn-chico"
                     onClick={() => abrirEditar(cotizacion)}
+                    disabled={cotizacion.congelada}
+                    title={cotizacion.congelada ? "La cotización está congelada y no se puede editar" : undefined}
                   >
                     Editar
+                  </button>
+                  <button
+                    className="btn btn-secundario btn-chico"
+                    onClick={() => setACongelar(cotizacion)}
+                    disabled={cotizacion.congelada}
+                    title={cotizacion.congelada ? "La cotización ya está congelada" : "Congelar la cotización"}
+                  >
+                    Congelar
                   </button>
                   <button
                     className="btn btn-peligro btn-chico"
@@ -409,6 +435,17 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
           moduloId={detalleModuloId}
           datos={datos}
           onCerrar={() => setDetalleModuloId(null)}
+        />
+      )}
+
+      {aCongelar && (
+        <Confirmacion
+          titulo="Congelar cotización"
+          mensaje={`Al congelar la cotización no podrá volver a editar la cotización. ¿Desea congelar la cotización #${aCongelar.id} de '${aCongelar.nombre_cliente}'?`}
+          textoConfirmar="Congelar"
+          variante="primario"
+          onConfirmar={confirmarCongelar}
+          onCancelar={() => setACongelar(null)}
         />
       )}
 
