@@ -18,7 +18,11 @@ function verificar<T>(resultado: { data: T | null; error: { message: string } | 
   return resultado.data as T;
 }
 
-const PARAMETROS_POR_DEFECTO: Parametros = { desperdicio_area: 0, desperdicio_lineal: 0 };
+const PARAMETROS_POR_DEFECTO: Parametros = {
+  desperdicio_area: 0,
+  desperdicio_lineal: 0,
+  utilidad: 0,
+};
 
 export async function cargarDatos(): Promise<Datos> {
   const [articulos, modulos, moduloItems, cotizaciones, cotizacionItems, parametros] =
@@ -102,6 +106,49 @@ export async function eliminarModulo(id: string): Promise<void> {
 }
 
 /**
+ * Elimina un renglón (artículo o módulo anidado) de un módulo existente y
+ * actualiza inmediatamente el Valor Final con la suma de los renglones restantes.
+ */
+export async function eliminarModuloItem(
+  itemId: string,
+  moduloId: string,
+  datos: Datos
+): Promise<void> {
+  verificar(await supabase.from("modulo_items").delete().eq("id", itemId));
+  const restantes = datos.moduloItems.filter(
+    (item) => item.modulo_id === moduloId && item.id !== itemId
+  );
+  const total = redondear(restantes.reduce((acc, item) => acc + item.valor_parcial, 0));
+  verificar(await supabase.from("modulos").update({ valor_final: total }).eq("id", moduloId));
+}
+
+/**
+ * Agrega nuevos renglones a un módulo existente y actualiza inmediatamente
+ * el Valor Final sumando los renglones ya existentes con los nuevos.
+ */
+export async function agregarItemsAModulo(
+  moduloId: string,
+  nuevosItems: ItemCalculado[],
+  datos: Datos
+): Promise<void> {
+  const { error } = await supabase
+    .from("modulo_items")
+    .insert(nuevosItems.map((item) => ({ modulo_id: moduloId, ...item })));
+  if (error) throw new Error(error.message);
+
+  const totalExistente = datos.moduloItems
+    .filter((item) => item.modulo_id === moduloId)
+    .reduce((acc, item) => acc + item.valor_parcial, 0);
+  const totalNuevo = nuevosItems.reduce((acc, item) => acc + item.valor_parcial, 0);
+  verificar(
+    await supabase
+      .from("modulos")
+      .update({ valor_final: redondear(totalExistente + totalNuevo) })
+      .eq("id", moduloId)
+  );
+}
+
+/**
  * Recalcula un módulo con los valores actuales: relee el valor de los
  * artículos, el % de desperdicio vigente (Parámetros) y el valor final
  * guardado de los módulos anidados. Actualiza los renglones y el valor
@@ -173,12 +220,13 @@ export async function crearCotizacion(
   userId: string,
   campos: CamposCotizacion,
   valorFinal: number,
+  utilidad: number,
   items: ItemCalculado[]
 ): Promise<void> {
   const cotizacion = verificar<Cotizacion>(
     await supabase
       .from("cotizaciones")
-      .insert({ user_id: userId, ...campos, valor_final: valorFinal })
+      .insert({ user_id: userId, ...campos, valor_final: valorFinal, utilidad })
       .select()
       .single()
   );
@@ -195,12 +243,13 @@ export async function actualizarCotizacion(
   id: number,
   campos: CamposCotizacion,
   valorFinal: number,
+  utilidad: number,
   items: ItemCalculado[]
 ): Promise<void> {
   verificar(
     await supabase
       .from("cotizaciones")
-      .update({ ...campos, valor_final: valorFinal, fecha_actualizacion: hoyISO() })
+      .update({ ...campos, valor_final: valorFinal, utilidad, fecha_actualizacion: hoyISO() })
       .eq("id", id)
   );
   verificar(await supabase.from("cotizacion_items").delete().eq("cotizacion_id", id));

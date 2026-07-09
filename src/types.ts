@@ -46,6 +46,8 @@ export interface Cotizacion {
   ciudad: string;
   version: string;
   valor_final: number;
+  /** Snapshot del % de utilidad con el que se guardó la cotización. */
+  utilidad: number;
   created_at: string;
 }
 
@@ -62,10 +64,11 @@ export interface CotizacionItem {
   valor_parcial: number;
 }
 
-/** Porcentajes de desperdicio del usuario (Configuración → Parámetros). */
+/** Porcentajes de desperdicio y utilidad del usuario (Configuración → Parámetros). */
 export interface Parametros {
   desperdicio_area: number;
   desperdicio_lineal: number;
+  utilidad: number;
 }
 
 /** Todos los datos del usuario cargados en memoria. */

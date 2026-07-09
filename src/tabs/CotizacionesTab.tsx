@@ -9,6 +9,7 @@ import {
   renglonesAItems,
   sumarParciales,
   validarRenglones,
+  valorFinalConUtilidad,
 } from "../lib/calculos";
 import {
   actualizarCotizacion,
@@ -44,11 +45,15 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
   const [idPrevisto, setIdPrevisto] = useState<number | null>(null);
   const [cliente, setCliente] = useState(clienteVacio);
   const [renglones, setRenglones] = useState<RenglonForm[]>([]);
+  // Snapshot del % de utilidad: se congela al abrir la cotización y solo se
+  // actualiza desde Parámetros al presionar "Recalcular" (igual que el desperdicio).
+  const [utilidad, setUtilidad] = useState(0);
   const [errorForm, setErrorForm] = useState<string | null>(null);
   const [mensajeRecalculo, setMensajeRecalculo] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
 
   const valorFinal = sumarParciales(renglones);
+  const valorConUtilidad = valorFinalConUtilidad(valorFinal, utilidad);
 
   useEffect(() => {
     if (modal === "crear") {
@@ -61,6 +66,7 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
     setCotizacionActual(null);
     setCliente(clienteVacio);
     setRenglones([nuevoRenglon()]);
+    setUtilidad(datos.parametros.utilidad);
     setErrorForm(null);
     setMensajeRecalculo(null);
     setModal("crear");
@@ -92,6 +98,7 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
         valor_parcial: item.valor_parcial,
       }))
     );
+    setUtilidad(cotizacion.utilidad);
     setErrorForm(null);
     setMensajeRecalculo(null);
     setModal("editar");
@@ -99,6 +106,7 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
 
   const recalcular = () => {
     setRenglones((actuales) => actuales.map((r) => recalcularRenglon(r, datos)));
+    setUtilidad(datos.parametros.utilidad);
     setMensajeRecalculo("Recalculado. Presione Guardar para aplicar los cambios.");
   };
 
@@ -123,9 +131,9 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
     setGuardando(true);
     try {
       if (modal === "editar" && cotizacionActual) {
-        await actualizarCotizacion(cotizacionActual.id, campos, valorFinal, items);
+        await actualizarCotizacion(cotizacionActual.id, campos, valorFinal, utilidad, items);
       } else {
-        await crearCotizacion(userId, campos, valorFinal, items);
+        await crearCotizacion(userId, campos, valorFinal, utilidad, items);
       }
       await refrescar();
       setModal(null);
@@ -290,6 +298,12 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
             <div className="total-final">
               Valor Final: <strong>{formatearCOP(valorFinal)}</strong>
             </div>
+            <div className="total-final">
+              Utilidad: <strong>{utilidad}%</strong>
+            </div>
+            <div className="total-final">
+              Valor Final Con Utilidad: <strong>{formatearCOP(valorConUtilidad)}</strong>
+            </div>
 
             {errorForm && <div className="msg-error">{errorForm}</div>}
             {mensajeRecalculo && <div className="msg-exito">{mensajeRecalculo}</div>}
@@ -365,6 +379,15 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
           </ul>
           <div className="total-final">
             Valor Final: <strong>{formatearCOP(detalleCotizacion.valor_final)}</strong>
+          </div>
+          <div className="total-final">
+            Utilidad: <strong>{detalleCotizacion.utilidad}%</strong>
+          </div>
+          <div className="total-final">
+            Valor Final Con Utilidad:{" "}
+            <strong>
+              {formatearCOP(valorFinalConUtilidad(detalleCotizacion.valor_final, detalleCotizacion.utilidad))}
+            </strong>
           </div>
           <div className="modal-acciones">
             <button className="btn btn-secundario" onClick={() => setDetalleCotizacion(null)}>

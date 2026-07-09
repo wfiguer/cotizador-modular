@@ -106,6 +106,8 @@ create table if not exists public.cotizaciones (
   ciudad text not null default '',
   version text not null default '',
   valor_final numeric not null default 0,
+  -- Snapshot del % de utilidad con el que se guardó la cotización
+  utilidad numeric not null default 0,
   created_at timestamptz not null default now()
 );
 
@@ -148,11 +150,12 @@ end $$;
 grant execute on function public.proximo_id_cotizacion() to authenticated;
 
 -- ---------- Tabla: parametros ----------
--- Porcentajes de desperdicio por usuario (Configuración → Parámetros)
+-- Porcentajes de desperdicio y utilidad por usuario (Configuración → Parámetros)
 create table if not exists public.parametros (
   user_id uuid primary key references auth.users (id) on delete cascade,
   desperdicio_area numeric not null default 0 check (desperdicio_area >= 0),
   desperdicio_lineal numeric not null default 0 check (desperdicio_lineal >= 0),
+  utilidad numeric not null default 0 check (utilidad >= 0),
   updated_at timestamptz not null default now()
 );
 

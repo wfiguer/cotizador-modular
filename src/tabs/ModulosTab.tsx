@@ -2,11 +2,18 @@ import { useState, type FormEvent } from "react";
 import Modal from "../components/Modal";
 import { Aviso, Confirmacion } from "../components/Dialogos";
 import RenglonesEditor, { nuevoRenglon } from "../components/RenglonesEditor";
-import DetalleModulo, { NodoModulo } from "../components/DetalleModulo";
+import DetalleModulo from "../components/DetalleModulo";
 import { formatearCOP } from "../lib/formato";
 import { renglonesAItems, sumarParciales, validarRenglones } from "../lib/calculos";
-import { crearModulo, eliminarModulo, recalcularModulo, usosDeItem } from "../lib/datos";
-import type { Datos, Modulo, RenglonForm } from "../types";
+import {
+  agregarItemsAModulo,
+  crearModulo,
+  eliminarModulo,
+  eliminarModuloItem,
+  recalcularModulo,
+  usosDeItem,
+} from "../lib/datos";
+import type { Datos, Modulo, ModuloItem, RenglonForm } from "../types";
 
 interface Props {
   datos: Datos;
@@ -24,8 +31,13 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
   const [aEliminar, setAEliminar] = useState<Modulo | null>(null);
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [editandoId, setEditandoId] = useState<string | null>(null);
-  const [mensajeRecalculo, setMensajeRecalculo] = useState<string | null>(null);
+  const [mensajeEditar, setMensajeEditar] = useState<string | null>(null);
   const [recalculando, setRecalculando] = useState(false);
+  const [nuevosRenglones, setNuevosRenglones] = useState<RenglonForm[]>([]);
+  const [errorNuevos, setErrorNuevos] = useState<string | null>(null);
+  const [guardandoNuevos, setGuardandoNuevos] = useState(false);
+  const [confirmarGuardarNuevos, setConfirmarGuardarNuevos] = useState(false);
+  const [itemAEliminar, setItemAEliminar] = useState<ModuloItem | null>(null);
 
   const valorFinal = sumarParciales(renglones);
 
@@ -79,17 +91,19 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
 
   const abrirEditar = (modulo: Modulo) => {
     setEditandoId(modulo.id);
-    setMensajeRecalculo(null);
+    setMensajeEditar(null);
+    setNuevosRenglones([]);
+    setErrorNuevos(null);
   };
 
   const recalcular = async () => {
     if (!editandoId) return;
     setRecalculando(true);
-    setMensajeRecalculo(null);
+    setMensajeEditar(null);
     try {
       await recalcularModulo(editandoId, datos);
       await refrescar();
-      setMensajeRecalculo("Módulo recalculado con los valores actuales ✓");
+      setMensajeEditar("Módulo recalculado con los valores actuales ✓");
     } catch (err) {
       setAviso(err instanceof Error ? err.message : "Error al recalcular el módulo.");
     } finally {
@@ -97,9 +111,53 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
     }
   };
 
+  const confirmarEliminarItem = async () => {
+    if (!itemAEliminar || !editandoId) return;
+    try {
+      await eliminarModuloItem(itemAEliminar.id, editandoId, datos);
+      await refrescar();
+      setMensajeEditar(
+        "Módulo o Artículo eliminado correctamente, y Valor Final actualizado inmediatamente."
+      );
+    } catch (err) {
+      setAviso(err instanceof Error ? err.message : "Error al eliminar el renglón.");
+    } finally {
+      setItemAEliminar(null);
+    }
+  };
+
+  const pedirGuardarNuevos = () => {
+    const error = validarRenglones(nuevosRenglones, datos);
+    if (error) return setErrorNuevos(error);
+    setErrorNuevos(null);
+    setConfirmarGuardarNuevos(true);
+  };
+
+  const confirmarGuardarNuevosRenglones = async () => {
+    if (!editandoId) return;
+    setGuardandoNuevos(true);
+    try {
+      await agregarItemsAModulo(editandoId, renglonesAItems(nuevosRenglones, datos), datos);
+      await refrescar();
+      setNuevosRenglones([]);
+      setMensajeEditar(
+        "Módulo o Artículo adicionado correctamente, y Valor Final actualizado inmediatamente."
+      );
+    } catch (err) {
+      setErrorNuevos(err instanceof Error ? err.message : "Error al agregar los renglones.");
+    } finally {
+      setGuardandoNuevos(false);
+      setConfirmarGuardarNuevos(false);
+    }
+  };
+
   const moduloEditando = editandoId
     ? datos.modulos.find((m) => m.id === editandoId) ?? null
     : null;
+
+  const itemsEditando = editandoId
+    ? datos.moduloItems.filter((item) => item.modulo_id === editandoId)
+    : [];
 
   return (
     <section>
@@ -197,14 +255,85 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
         <Modal
           titulo={`Editar módulo "${moduloEditando.nombre}"`}
           onCerrar={() => setEditandoId(null)}
-          ancho={620}
+          ancho={680}
         >
-          <NodoModulo moduloId={moduloEditando.id} datos={datos} />
+          {itemsEditando.length === 0 ? (
+            <p className="tabla-vacia">Este módulo aún no tiene renglones.</p>
+          ) : (
+            <ul className="arbol">
+              {itemsEditando.map((item) => {
+                const esArticulo = item.tipo_item === "articulo";
+                const articulo = esArticulo
+                  ? datos.articulos.find((a) => a.id === item.item_id)
+                  : undefined;
+                const submodulo = !esArticulo
+                  ? datos.modulos.find((m) => m.id === item.item_id)
+                  : undefined;
+                const nombre = articulo?.nombre ?? submodulo?.nombre ?? "(eliminado)";
+                return (
+                  <li
+                    key={item.id}
+                    className={`arbol-fila ${esArticulo ? "arbol-articulo" : "arbol-modulo"}`}
+                  >
+                    <span>
+                      <span className="arbol-nombre">{nombre}</span>
+                      <span className="arbol-datos">
+                        Cantidad: {item.cantidad}
+                        {item.medida_lineal_1 != null && item.medida_lineal_2 != null && (
+                          <>
+                            {" · "}
+                            {item.medida_lineal_1} × {item.medida_lineal_2} {item.unidad_lineal}
+                          </>
+                        )}
+                        {item.medida_lineal_1 != null && item.medida_lineal_2 == null && (
+                          <>
+                            {" · "}
+                            {item.medida_lineal_1} {item.unidad_lineal}
+                          </>
+                        )}
+                        {item.desperdicio > 0 && <> · Desperdicio: {item.desperdicio}%</>}
+                        {" · "}
+                        <strong>{formatearCOP(item.valor_parcial)}</strong>
+                      </span>
+                    </span>
+                    <span className="arbol-acciones">
+                      {submodulo && (
+                        <button
+                          type="button"
+                          className="btn btn-secundario btn-chico"
+                          onClick={() => setDetalleId(submodulo.id)}
+                        >
+                          Detalle
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btn-peligro btn-chico"
+                        onClick={() => setItemAEliminar(item)}
+                      >
+                        Eliminar
+                      </button>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          <RenglonesEditor
+            datos={datos}
+            renglones={nuevosRenglones}
+            onChange={setNuevosRenglones}
+            onVerDetalleModulo={setDetalleId}
+            excluirModuloId={moduloEditando.id}
+          />
+
           <div className="total-final">
             Valor Final: <strong>{formatearCOP(moduloEditando.valor_final)}</strong>
           </div>
 
-          {mensajeRecalculo && <div className="msg-exito">{mensajeRecalculo}</div>}
+          {errorNuevos && <div className="msg-error">{errorNuevos}</div>}
+          {mensajeEditar && <div className="msg-exito">{mensajeEditar}</div>}
 
           <div className="modal-acciones">
             <button className="btn btn-secundario" onClick={() => setEditandoId(null)}>
@@ -218,6 +347,16 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
             >
               {recalculando ? "Recalculando…" : "Recalcular"}
             </button>
+            {nuevosRenglones.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-primario"
+                onClick={pedirGuardarNuevos}
+                disabled={guardandoNuevos}
+              >
+                {guardandoNuevos ? "Guardando…" : "Guardar"}
+              </button>
+            )}
           </div>
         </Modal>
       )}
@@ -230,6 +369,28 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
           mensaje={`¿Eliminar el módulo '${aEliminar.nombre}'? Esta acción no se puede deshacer.`}
           onConfirmar={confirmarEliminar}
           onCancelar={() => setAEliminar(null)}
+        />
+      )}
+
+      {itemAEliminar && (
+        <Confirmacion
+          titulo="Eliminar renglón"
+          mensaje={`¿Eliminar este ${
+            itemAEliminar.tipo_item === "articulo" ? "artículo" : "módulo"
+          } del módulo "${moduloEditando?.nombre}"? Esta acción no se puede deshacer.`}
+          onConfirmar={confirmarEliminarItem}
+          onCancelar={() => setItemAEliminar(null)}
+        />
+      )}
+
+      {confirmarGuardarNuevos && (
+        <Confirmacion
+          titulo="Agregar renglones"
+          mensaje="¿Guardar los renglones agregados al módulo?"
+          textoConfirmar="Guardar"
+          variante="primario"
+          onConfirmar={confirmarGuardarNuevosRenglones}
+          onCancelar={() => setConfirmarGuardarNuevos(false)}
         />
       )}
     </section>

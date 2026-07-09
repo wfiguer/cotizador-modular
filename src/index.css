@@ -612,3 +612,16 @@ select:focus {
 .arbol-modulo > details > summary {
   cursor: pointer;
 }
+
+.arbol-fila {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.arbol-acciones {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}

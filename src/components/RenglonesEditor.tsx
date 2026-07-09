@@ -29,10 +29,21 @@ interface Props {
   renglones: RenglonForm[];
   onChange: (renglones: RenglonForm[]) => void;
   onVerDetalleModulo: (moduloId: string) => void;
+  /** Módulo que no debe aparecer como opción (evita que un módulo se contenga a sí mismo). */
+  excluirModuloId?: string;
 }
 
-export default function RenglonesEditor({ datos, renglones, onChange, onVerDetalleModulo }: Props) {
-  const hayOpciones = datos.articulos.length > 0 || datos.modulos.length > 0;
+export default function RenglonesEditor({
+  datos,
+  renglones,
+  onChange,
+  onVerDetalleModulo,
+  excluirModuloId,
+}: Props) {
+  const modulosDisponibles = excluirModuloId
+    ? datos.modulos.filter((m) => m.id !== excluirModuloId)
+    : datos.modulos;
+  const hayOpciones = datos.articulos.length > 0 || modulosDisponibles.length > 0;
 
   if (!hayOpciones) {
     return (
@@ -102,9 +113,9 @@ export default function RenglonesEditor({ datos, renglones, onChange, onVerDetal
                     ))}
                   </optgroup>
                 )}
-                {datos.modulos.length > 0 && (
+                {modulosDisponibles.length > 0 && (
                   <optgroup label="Módulos">
-                    {datos.modulos.map((m) => (
+                    {modulosDisponibles.map((m) => (
                       <option key={m.id} value={`modulo:${m.id}`}>
                         {m.nombre}
                       </option>
