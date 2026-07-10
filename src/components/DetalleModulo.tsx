@@ -8,9 +8,16 @@ interface PropsNodo {
   moduloId: string;
   datos: Datos;
   desactualizados: Set<string>;
+  /** Ocultar los bombillos de pendientes (ej: cotizaciones congeladas). */
+  mostrarPendientes?: boolean;
 }
 
-export function NodoModulo({ moduloId, datos, desactualizados }: PropsNodo) {
+export function NodoModulo({
+  moduloId,
+  datos,
+  desactualizados,
+  mostrarPendientes = true,
+}: PropsNodo) {
   const items = datos.moduloItems.filter((item) => item.modulo_id === moduloId);
 
   return (
@@ -22,7 +29,7 @@ export function NodoModulo({ moduloId, datos, desactualizados }: PropsNodo) {
           return (
             <li key={item.id} className="arbol-articulo">
               <span className="arbol-nombre">
-                {itemDesactualizado(item, datos) && (
+                {mostrarPendientes && itemDesactualizado(item, datos) && (
                   <span
                     className="bombillo bombillo-pendiente"
                     title="Este artículo está desactualizado con respecto a Parámetros. Recalcule el módulo que lo contiene desde «Editar»."
@@ -60,7 +67,7 @@ export function NodoModulo({ moduloId, datos, desactualizados }: PropsNodo) {
             <details open>
               <summary>
                 <span className="arbol-nombre">
-                  {(subDesactualizado || renglonDesactualizado) && (
+                  {mostrarPendientes && (subDesactualizado || renglonDesactualizado) && (
                     <span
                       className="bombillo bombillo-pendiente"
                       title={
@@ -76,7 +83,12 @@ export function NodoModulo({ moduloId, datos, desactualizados }: PropsNodo) {
                   Cantidad: {item.cantidad} · <strong>{formatearCOP(item.valor_parcial)}</strong>
                 </span>
               </summary>
-              <NodoModulo moduloId={submodulo.id} datos={datos} desactualizados={desactualizados} />
+              <NodoModulo
+                moduloId={submodulo.id}
+                datos={datos}
+                desactualizados={desactualizados}
+                mostrarPendientes={mostrarPendientes}
+              />
             </details>
           </li>
         );
