@@ -664,6 +664,43 @@ select:focus {
   font-size: 14px;
 }
 
+/* Alerta dentro de la fila de acciones de un modal (junto al botón Cerrar) */
+.alerta-en-acciones {
+  flex: 1;
+  align-self: center;
+  text-align: left;
+}
+
+/* ---------- Estado de actualización (bombillo) ---------- */
+.tabla .estado {
+  text-align: center;
+}
+
+.bombillo {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  cursor: help;
+}
+
+.bombillo-pendiente {
+  background: var(--acento);
+  box-shadow: 0 0 6px var(--acento);
+}
+
+.bombillo-ok {
+  background: var(--exito);
+  box-shadow: 0 0 6px var(--exito);
+}
+
+/* Bombillo junto al nombre de un submódulo en el árbol de detalle */
+.arbol .bombillo {
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+}
+
 /* ---------- Árbol de detalle ---------- */
 .arbol {
   list-style: none;

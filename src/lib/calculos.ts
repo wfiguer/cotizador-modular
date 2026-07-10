@@ -2,6 +2,7 @@ import type {
   Articulo,
   Datos,
   ItemCalculado,
+  ModuloItem,
   Parametros,
   RenglonForm,
   UnidadLineal,
@@ -125,6 +126,120 @@ export function recalcularRenglon(renglon: RenglonForm, datos: Datos): RenglonFo
   }
   const actualizado = { ...renglon, desperdicio };
   return { ...actualizado, valor_parcial: calcularParcialRenglon(actualizado, datos) };
+}
+
+/**
+ * Desperdicio y valor parcial que daría "Recalcular" hoy para un renglón
+ * guardado (de un módulo o de una cotización): relee el valor de los
+ * artículos, el % de desperdicio vigente (Parámetros) y el valor final
+ * guardado de los módulos referenciados. Si el artículo o módulo del renglón
+ * ya no existe, devuelve los valores guardados sin cambios.
+ */
+function valoresRecalculados(
+  item: ItemCalculado,
+  datos: Datos
+): { desperdicio: number; valor_parcial: number } {
+  if (item.tipo_item === "articulo") {
+    const articulo = datos.articulos.find((a) => a.id === item.item_id);
+    if (!articulo) return { desperdicio: item.desperdicio, valor_parcial: item.valor_parcial };
+    const desperdicio = desperdicioParaArticulo(articulo, datos.parametros);
+    return {
+      desperdicio,
+      valor_parcial: valorParcialDeArticulo(
+        articulo,
+        item.cantidad,
+        item.medida_lineal_1,
+        item.medida_lineal_2,
+        item.unidad_lineal,
+        desperdicio
+      ),
+    };
+  }
+  const submodulo = datos.modulos.find((m) => m.id === item.item_id);
+  return {
+    desperdicio: item.desperdicio,
+    valor_parcial: submodulo
+      ? redondear(item.cantidad * submodulo.valor_final)
+      : item.valor_parcial,
+  };
+}
+
+/**
+ * Recalcula un renglón de un módulo con los valores actuales. No toca la base
+ * de datos; los cambios se persisten al confirmar con "Guardar".
+ */
+export function recalcularItemModulo(item: ModuloItem, datos: Datos): ModuloItem {
+  return { ...item, ...valoresRecalculados(item, datos) };
+}
+
+/**
+ * ¿El renglón guardado (de un módulo o de una cotización) daría un valor
+ * parcial o desperdicio distinto si se recalculara hoy?
+ */
+export function itemDesactualizado(item: ItemCalculado, datos: Datos): boolean {
+  const actual = valoresRecalculados(item, datos);
+  return actual.valor_parcial !== item.valor_parcial || actual.desperdicio !== item.desperdicio;
+}
+
+/**
+ * Ids de los módulos desactualizados con respecto a Parámetros: tienen algún
+ * renglón que cambiaría al presionar "Recalcular", o referencian (a cualquier
+ * profundidad) un submódulo desactualizado. La actualización debe hacerse de
+ * abajo hacia arriba: al guardar un submódulo, el padre queda desactualizado
+ * hasta que también se recalcule y guarde.
+ */
+export function modulosDesactualizados(datos: Datos): Set<string> {
+  const memo = new Map<string, boolean>();
+
+  const evaluar = (moduloId: string, enProceso: Set<string>): boolean => {
+    const conocido = memo.get(moduloId);
+    if (conocido !== undefined) return conocido;
+    if (enProceso.has(moduloId)) return false; // guarda contra ciclos
+    enProceso.add(moduloId);
+
+    const items = datos.moduloItems.filter((item) => item.modulo_id === moduloId);
+    const desactualizado = items.some(
+      (item) =>
+        itemDesactualizado(item, datos) ||
+        (item.tipo_item === "modulo" && evaluar(item.item_id, enProceso))
+    );
+
+    enProceso.delete(moduloId);
+    memo.set(moduloId, desactualizado);
+    return desactualizado;
+  };
+
+  const resultado = new Set<string>();
+  for (const modulo of datos.modulos) {
+    if (evaluar(modulo.id, new Set())) resultado.add(modulo.id);
+  }
+  return resultado;
+}
+
+/**
+ * Ids de las cotizaciones desactualizadas con respecto a Parámetros: tienen
+ * algún renglón que cambiaría al presionar "Recalcular", referencian un módulo
+ * desactualizado (a cualquier profundidad), o su % de utilidad difiere del
+ * vigente. Las cotizaciones congeladas se ignoran (son snapshots inmutables).
+ */
+export function cotizacionesDesactualizadas(
+  datos: Datos,
+  modulosPendientes: Set<string> = modulosDesactualizados(datos)
+): Set<number> {
+  const resultado = new Set<number>();
+  for (const cotizacion of datos.cotizaciones) {
+    if (cotizacion.congelada) continue;
+    const items = datos.cotizacionItems.filter((item) => item.cotizacion_id === cotizacion.id);
+    const desactualizada =
+      cotizacion.utilidad !== datos.parametros.utilidad ||
+      items.some(
+        (item) =>
+          itemDesactualizado(item, datos) ||
+          (item.tipo_item === "modulo" && modulosPendientes.has(item.item_id))
+      );
+    if (desactualizada) resultado.add(cotizacion.id);
+  }
+  return resultado;
 }
 
 /** Valida los renglones del formulario. Devuelve un mensaje de error o null si todo está bien. */

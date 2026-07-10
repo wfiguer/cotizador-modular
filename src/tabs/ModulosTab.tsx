@@ -1,16 +1,21 @@
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import Modal from "../components/Modal";
 import { Aviso, Confirmacion } from "../components/Dialogos";
 import RenglonesEditor, { nuevoRenglon } from "../components/RenglonesEditor";
 import DetalleModulo from "../components/DetalleModulo";
 import { formatearCOP } from "../lib/formato";
-import { renglonesAItems, sumarParciales, validarRenglones } from "../lib/calculos";
 import {
-  agregarItemsAModulo,
+  modulosDesactualizados,
+  recalcularItemModulo,
+  renglonesAItems,
+  sumarParciales,
+  validarRenglones,
+} from "../lib/calculos";
+import {
   crearModulo,
   eliminarModulo,
   eliminarModuloItem,
-  recalcularModulo,
+  guardarCambiosModulo,
   usosDeItem,
 } from "../lib/datos";
 import type { Datos, Modulo, ModuloItem, RenglonForm } from "../types";
@@ -32,14 +37,20 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
   const [detalleId, setDetalleId] = useState<string | null>(null);
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [mensajeEditar, setMensajeEditar] = useState<string | null>(null);
-  const [recalculando, setRecalculando] = useState(false);
+  // Snapshot local de los renglones del módulo en edición: "Recalcular" los
+  // actualiza solo en memoria y "Guardar" persiste los cambios confirmados.
+  const [itemsLocales, setItemsLocales] = useState<ModuloItem[]>([]);
   const [nuevosRenglones, setNuevosRenglones] = useState<RenglonForm[]>([]);
-  const [errorNuevos, setErrorNuevos] = useState<string | null>(null);
-  const [guardandoNuevos, setGuardandoNuevos] = useState(false);
-  const [confirmarGuardarNuevos, setConfirmarGuardarNuevos] = useState(false);
+  const [errorEditar, setErrorEditar] = useState<string | null>(null);
+  const [guardandoCambios, setGuardandoCambios] = useState(false);
+  const [confirmarGuardar, setConfirmarGuardar] = useState(false);
   const [itemAEliminar, setItemAEliminar] = useState<ModuloItem | null>(null);
 
   const valorFinal = sumarParciales(renglones);
+
+  // Módulos con actualizaciones pendientes con respecto a Parámetros (se
+  // recalcula solo cuando se refrescan los datos).
+  const desactualizados = useMemo(() => modulosDesactualizados(datos), [datos]);
 
   const abrirCrear = () => {
     setNombre("");
@@ -91,24 +102,15 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
 
   const abrirEditar = (modulo: Modulo) => {
     setEditandoId(modulo.id);
+    setItemsLocales(datos.moduloItems.filter((item) => item.modulo_id === modulo.id));
     setMensajeEditar(null);
     setNuevosRenglones([]);
-    setErrorNuevos(null);
+    setErrorEditar(null);
   };
 
-  const recalcular = async () => {
-    if (!editandoId) return;
-    setRecalculando(true);
-    setMensajeEditar(null);
-    try {
-      await recalcularModulo(editandoId, datos);
-      await refrescar();
-      setMensajeEditar("Módulo recalculado con los valores actuales ✓");
-    } catch (err) {
-      setAviso(err instanceof Error ? err.message : "Error al recalcular el módulo.");
-    } finally {
-      setRecalculando(false);
-    }
+  const recalcular = () => {
+    setItemsLocales((actuales) => actuales.map((item) => recalcularItemModulo(item, datos)));
+    setMensajeEditar("Recalculado. Presione Guardar para aplicar los cambios.");
   };
 
   const confirmarEliminarItem = async () => {
@@ -116,6 +118,7 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
     try {
       await eliminarModuloItem(itemAEliminar.id, editandoId, datos);
       await refrescar();
+      setItemsLocales((actuales) => actuales.filter((item) => item.id !== itemAEliminar.id));
       setMensajeEditar(
         "Módulo o Artículo eliminado correctamente, y Valor Final actualizado inmediatamente."
       );
@@ -126,28 +129,47 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
     }
   };
 
-  const pedirGuardarNuevos = () => {
-    const error = validarRenglones(nuevosRenglones, datos);
-    if (error) return setErrorNuevos(error);
-    setErrorNuevos(null);
-    setConfirmarGuardarNuevos(true);
+  const pedirGuardar = () => {
+    if (nuevosRenglones.length > 0) {
+      const error = validarRenglones(nuevosRenglones, datos);
+      if (error) return setErrorEditar(error);
+    }
+    setErrorEditar(null);
+    setConfirmarGuardar(true);
   };
 
-  const confirmarGuardarNuevosRenglones = async () => {
+  const guardarCambios = async () => {
     if (!editandoId) return;
-    setGuardandoNuevos(true);
+    setGuardandoCambios(true);
     try {
-      await agregarItemsAModulo(editandoId, renglonesAItems(nuevosRenglones, datos), datos);
-      await refrescar();
-      setNuevosRenglones([]);
-      setMensajeEditar(
-        "Módulo o Artículo adicionado correctamente, y Valor Final actualizado inmediatamente."
+      const cambios = itemsLocales
+        .filter((item) => {
+          const original = datos.moduloItems.find((i) => i.id === item.id);
+          return (
+            original &&
+            (original.valor_parcial !== item.valor_parcial ||
+              original.desperdicio !== item.desperdicio)
+          );
+        })
+        .map((item) => ({
+          id: item.id,
+          valor_parcial: item.valor_parcial,
+          desperdicio: item.desperdicio,
+        }));
+      const nuevosItems = renglonesAItems(nuevosRenglones, datos);
+      await guardarCambiosModulo(
+        editandoId,
+        cambios,
+        nuevosItems,
+        sumarParciales([...itemsLocales, ...nuevosItems])
       );
+      await refrescar();
+      setEditandoId(null);
     } catch (err) {
-      setErrorNuevos(err instanceof Error ? err.message : "Error al agregar los renglones.");
+      setErrorEditar(err instanceof Error ? err.message : "Error al guardar el módulo.");
     } finally {
-      setGuardandoNuevos(false);
-      setConfirmarGuardarNuevos(false);
+      setGuardandoCambios(false);
+      setConfirmarGuardar(false);
     }
   };
 
@@ -155,9 +177,7 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
     ? datos.modulos.find((m) => m.id === editandoId) ?? null
     : null;
 
-  const itemsEditando = editandoId
-    ? datos.moduloItems.filter((item) => item.modulo_id === editandoId)
-    : [];
+  const valorFinalEditando = sumarParciales([...itemsLocales, ...nuevosRenglones]);
 
   return (
     <section>
@@ -175,6 +195,7 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
           <thead>
             <tr>
               <th>Nombre</th>
+              <th className="estado">Estado</th>
               <th className="num">Valor</th>
               <th className="acciones">Acciones</th>
             </tr>
@@ -183,6 +204,19 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
             {datos.modulos.map((modulo) => (
               <tr key={modulo.id}>
                 <td>{modulo.nombre}</td>
+                <td className="estado">
+                  {desactualizados.has(modulo.id) ? (
+                    <span
+                      className="bombillo bombillo-pendiente"
+                      title="Hay actualizaciones pendientes con respecto a Parámetros en este módulo o en sus submódulos"
+                    />
+                  ) : (
+                    <span
+                      className="bombillo bombillo-ok"
+                      title="El módulo y todos sus submódulos están actualizados con respecto a Parámetros"
+                    />
+                  )}
+                </td>
                 <td className="num">{formatearCOP(modulo.valor_final)}</td>
                 <td className="acciones">
                   <button
@@ -257,11 +291,11 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
           onCerrar={() => setEditandoId(null)}
           ancho={680}
         >
-          {itemsEditando.length === 0 ? (
+          {itemsLocales.length === 0 ? (
             <p className="tabla-vacia">Este módulo aún no tiene renglones.</p>
           ) : (
             <ul className="arbol">
-              {itemsEditando.map((item) => {
+              {itemsLocales.map((item) => {
                 const esArticulo = item.tipo_item === "articulo";
                 const articulo = esArticulo
                   ? datos.articulos.find((a) => a.id === item.item_id)
@@ -329,34 +363,36 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
           />
 
           <div className="total-final">
-            Valor Final: <strong>{formatearCOP(moduloEditando.valor_final)}</strong>
+            Valor Final: <strong>{formatearCOP(valorFinalEditando)}</strong>
           </div>
 
-          {errorNuevos && <div className="msg-error">{errorNuevos}</div>}
+          {errorEditar && <div className="msg-error">{errorEditar}</div>}
           {mensajeEditar && <div className="msg-exito">{mensajeEditar}</div>}
 
           <div className="modal-acciones">
-            <button className="btn btn-secundario" onClick={() => setEditandoId(null)}>
-              Cerrar
-            </button>
             <button
-              className="btn btn-primario"
+              type="button"
+              className="btn btn-secundario"
               onClick={recalcular}
-              disabled={recalculando}
               title="Releer los valores actuales de artículos, módulos anidados y desperdicio"
             >
-              {recalculando ? "Recalculando…" : "Recalcular"}
+              Recalcular
             </button>
-            {nuevosRenglones.length > 0 && (
-              <button
-                type="button"
-                className="btn btn-primario"
-                onClick={pedirGuardarNuevos}
-                disabled={guardandoNuevos}
-              >
-                {guardandoNuevos ? "Guardando…" : "Guardar"}
-              </button>
-            )}
+            <button
+              type="button"
+              className="btn btn-secundario"
+              onClick={() => setEditandoId(null)}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="btn btn-primario"
+              onClick={pedirGuardar}
+              disabled={guardandoCambios}
+            >
+              {guardandoCambios ? "Guardando…" : "Guardar"}
+            </button>
           </div>
         </Modal>
       )}
@@ -383,14 +419,14 @@ export default function ModulosTab({ datos, userId, refrescar }: Props) {
         />
       )}
 
-      {confirmarGuardarNuevos && (
+      {confirmarGuardar && (
         <Confirmacion
-          titulo="Agregar renglones"
-          mensaje="¿Guardar los renglones agregados al módulo?"
+          titulo="Guardar módulo"
+          mensaje={`¿Guardar los cambios del módulo "${moduloEditando?.nombre}"?`}
           textoConfirmar="Guardar"
           variante="primario"
-          onConfirmar={confirmarGuardarNuevosRenglones}
-          onCancelar={() => setConfirmarGuardarNuevos(false)}
+          onConfirmar={guardarCambios}
+          onCancelar={() => setConfirmarGuardar(false)}
         />
       )}
     </section>
