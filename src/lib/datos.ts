@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import { desperdicioParaArticulo, redondear, valorParcialDeArticulo } from "./calculos";
+import { redondear } from "./calculos";
 import { hoyISO } from "./formato";
 import type {
   Articulo,
@@ -123,68 +123,16 @@ export async function eliminarModuloItem(
 }
 
 /**
- * Agrega nuevos renglones a un módulo existente y actualiza inmediatamente
- * el Valor Final sumando los renglones ya existentes con los nuevos.
+ * Guarda los cambios pendientes de un módulo en edición: los renglones
+ * recalculados en memoria, los renglones nuevos y el Valor Final resultante.
+ * Solo se ejecuta al confirmar con el botón "Guardar".
  */
-export async function agregarItemsAModulo(
+export async function guardarCambiosModulo(
   moduloId: string,
+  cambios: { id: string; valor_parcial: number; desperdicio: number }[],
   nuevosItems: ItemCalculado[],
-  datos: Datos
+  valorFinal: number
 ): Promise<void> {
-  const { error } = await supabase
-    .from("modulo_items")
-    .insert(nuevosItems.map((item) => ({ modulo_id: moduloId, ...item })));
-  if (error) throw new Error(error.message);
-
-  const totalExistente = datos.moduloItems
-    .filter((item) => item.modulo_id === moduloId)
-    .reduce((acc, item) => acc + item.valor_parcial, 0);
-  const totalNuevo = nuevosItems.reduce((acc, item) => acc + item.valor_parcial, 0);
-  verificar(
-    await supabase
-      .from("modulos")
-      .update({ valor_final: redondear(totalExistente + totalNuevo) })
-      .eq("id", moduloId)
-  );
-}
-
-/**
- * Recalcula un módulo con los valores actuales: relee el valor de los
- * artículos, el % de desperdicio vigente (Parámetros) y el valor final
- * guardado de los módulos anidados. Actualiza los renglones y el valor
- * final del módulo. Solo se ejecuta con el botón "Recalcular".
- */
-export async function recalcularModulo(moduloId: string, datos: Datos): Promise<void> {
-  const items = datos.moduloItems.filter((item) => item.modulo_id === moduloId);
-  const cambios: { id: string; valor_parcial: number; desperdicio: number }[] = [];
-  let total = 0;
-
-  for (const item of items) {
-    let parcial = item.valor_parcial;
-    let desperdicio = item.desperdicio;
-    if (item.tipo_item === "articulo") {
-      const articulo = datos.articulos.find((a) => a.id === item.item_id);
-      if (articulo) {
-        desperdicio = desperdicioParaArticulo(articulo, datos.parametros);
-        parcial = valorParcialDeArticulo(
-          articulo,
-          item.cantidad,
-          item.medida_lineal_1,
-          item.medida_lineal_2,
-          item.unidad_lineal,
-          desperdicio
-        );
-      }
-    } else {
-      const submodulo = datos.modulos.find((m) => m.id === item.item_id);
-      if (submodulo) parcial = redondear(item.cantidad * submodulo.valor_final);
-    }
-    total += parcial;
-    if (parcial !== item.valor_parcial || desperdicio !== item.desperdicio) {
-      cambios.push({ id: item.id, valor_parcial: parcial, desperdicio });
-    }
-  }
-
   await Promise.all(
     cambios.map((cambio) =>
       supabase
@@ -194,8 +142,15 @@ export async function recalcularModulo(moduloId: string, datos: Datos): Promise<
         .then(verificar)
     )
   );
+  if (nuevosItems.length > 0) {
+    verificar(
+      await supabase
+        .from("modulo_items")
+        .insert(nuevosItems.map((item) => ({ modulo_id: moduloId, ...item })))
+    );
+  }
   verificar(
-    await supabase.from("modulos").update({ valor_final: redondear(total) }).eq("id", moduloId)
+    await supabase.from("modulos").update({ valor_final: valorFinal }).eq("id", moduloId)
   );
 }
 

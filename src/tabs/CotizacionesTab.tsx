@@ -1,10 +1,13 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Modal from "../components/Modal";
 import { Confirmacion } from "../components/Dialogos";
 import RenglonesEditor, { nuevoRenglon } from "../components/RenglonesEditor";
 import DetalleModulo from "../components/DetalleModulo";
 import { formatearCOP, formatearFecha, hoyISO } from "../lib/formato";
 import {
+  cotizacionesDesactualizadas,
+  itemDesactualizado,
+  modulosDesactualizados,
   recalcularRenglon,
   renglonesAItems,
   sumarParciales,
@@ -56,6 +59,14 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
 
   const valorFinal = sumarParciales(renglones);
   const valorConUtilidad = valorFinalConUtilidad(valorFinal, utilidad);
+
+  // Módulos y cotizaciones con actualizaciones pendientes con respecto a
+  // Parámetros (se recalculan solo cuando se refrescan los datos).
+  const modulosPendientes = useMemo(() => modulosDesactualizados(datos), [datos]);
+  const cotizacionesPendientes = useMemo(
+    () => cotizacionesDesactualizadas(datos, modulosPendientes),
+    [datos, modulosPendientes]
+  );
 
   useEffect(() => {
     if (modal === "crear") {
@@ -187,6 +198,7 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
           <thead>
             <tr>
               <th className="num">Id</th>
+              <th className="estado">Estado</th>
               <th>Fecha Creación</th>
               <th>Fecha Actualización</th>
               <th>Nombre Cliente</th>
@@ -200,6 +212,20 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
             {datos.cotizaciones.map((cotizacion) => (
               <tr key={cotizacion.id} className={cotizacion.congelada ? "fila-congelada" : undefined}>
                 <td className="num">{cotizacion.id}</td>
+                <td className="estado">
+                  {!cotizacion.congelada &&
+                    (cotizacionesPendientes.has(cotizacion.id) ? (
+                      <span
+                        className="bombillo bombillo-pendiente"
+                        title="Hay actualizaciones pendientes con respecto a Parámetros en esta cotización o en los módulos que usa. Recalcule desde «Editar»."
+                      />
+                    ) : (
+                      <span
+                        className="bombillo bombillo-ok"
+                        title="La cotización está actualizada con respecto a Parámetros."
+                      />
+                    ))}
+                </td>
                 <td>{formatearFecha(cotizacion.fecha_creacion)}</td>
                 <td>{formatearFecha(cotizacion.fecha_actualizacion)}</td>
                 <td>{cotizacion.nombre_cliente}</td>
@@ -379,9 +405,29 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
           <ul className="arbol">
             {datos.cotizacionItems
               .filter((item) => item.cotizacion_id === detalleCotizacion.id)
-              .map((item) => (
+              .map((item) => {
+                const moduloPendiente =
+                  item.tipo_item === "modulo" && modulosPendientes.has(item.item_id);
+                const renglonPendiente =
+                  !detalleCotizacion.congelada &&
+                  (moduloPendiente || itemDesactualizado(item, datos));
+                return (
                 <li key={item.id} className={item.tipo_item === "modulo" ? "arbol-modulo" : "arbol-articulo"}>
-                  <span className="arbol-nombre">{nombreDeItem(item.tipo_item, item.item_id)}</span>
+                  <span className="arbol-nombre">
+                    {renglonPendiente && (
+                      <span
+                        className="bombillo bombillo-pendiente"
+                        title={
+                          moduloPendiente
+                            ? "Este módulo tiene actualizaciones pendientes con respecto a Parámetros. Actualícelo primero desde Módulos → «Editar»."
+                            : item.tipo_item === "articulo"
+                              ? "Este artículo está desactualizado con respecto a Parámetros. Recalcule la cotización desde «Editar»."
+                              : "El valor de este renglón está desactualizado. Recalcule la cotización desde «Editar»."
+                        }
+                      />
+                    )}
+                    {nombreDeItem(item.tipo_item, item.item_id)}
+                  </span>
                   <span className="arbol-datos">
                     Cantidad: {item.cantidad}
                     {item.medida_lineal_1 != null && item.medida_lineal_2 != null && (
@@ -401,12 +447,22 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
                     <strong>{formatearCOP(item.valor_parcial)}</strong>
                   </span>
                 </li>
-              ))}
+                );
+              })}
           </ul>
           <div className="total-final">
             Valor Final: <strong>{formatearCOP(detalleCotizacion.valor_final)}</strong>
           </div>
           <div className="total-final">
+            {!detalleCotizacion.congelada &&
+              detalleCotizacion.utilidad !== datos.parametros.utilidad && (
+                <>
+                  <span
+                    className="bombillo bombillo-pendiente"
+                    title="El % de utilidad difiere del vigente en Parámetros. Recalcule la cotización desde «Editar»."
+                  />{" "}
+                </>
+              )}
             Utilidad: <strong>{detalleCotizacion.utilidad}%</strong>
           </div>
           <div className="total-final">
@@ -416,6 +472,12 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
             </strong>
           </div>
           <div className="modal-acciones">
+            {cotizacionesPendientes.has(detalleCotizacion.id) && (
+              <div className="msg-error alerta-en-acciones">
+                Existen actualizaciones pendientes por realizar con respecto a Parámetros para
+                esta cotización. Actualícela desde la función «Editar».
+              </div>
+            )}
             <button className="btn btn-secundario" onClick={() => setDetalleCotizacion(null)}>
               Cerrar
             </button>
