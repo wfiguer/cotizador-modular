@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Modal from "../components/Modal";
 import { Confirmacion } from "../components/Dialogos";
 import RenglonesEditor, { nuevoRenglon } from "../components/RenglonesEditor";
-import DetalleModulo from "../components/DetalleModulo";
+import DetalleModulo, { NodoModulo } from "../components/DetalleModulo";
 import { formatearCOP, formatearFecha, hoyISO } from "../lib/formato";
 import {
   cotizacionesDesactualizadas,
@@ -411,42 +411,74 @@ export default function CotizacionesTab({ datos, userId, refrescar }: Props) {
                 const renglonPendiente =
                   !detalleCotizacion.congelada &&
                   (moduloPendiente || itemDesactualizado(item, datos));
+                const bombillo = renglonPendiente && (
+                  <span
+                    className="bombillo bombillo-pendiente"
+                    title={
+                      moduloPendiente
+                        ? "Este módulo tiene actualizaciones pendientes con respecto a Parámetros. Actualícelo primero desde Módulos → «Editar»."
+                        : item.tipo_item === "articulo"
+                          ? "Este artículo está desactualizado con respecto a Parámetros. Recalcule la cotización desde «Editar»."
+                          : "El valor de este renglón está desactualizado. Recalcule la cotización desde «Editar»."
+                    }
+                  />
+                );
+
+                if (item.tipo_item === "articulo") {
+                  return (
+                    <li key={item.id} className="arbol-articulo">
+                      <span className="arbol-nombre">
+                        {bombillo}
+                        {nombreDeItem(item.tipo_item, item.item_id)}
+                      </span>
+                      <span className="arbol-datos">
+                        Cantidad: {item.cantidad}
+                        {item.medida_lineal_1 != null && item.medida_lineal_2 != null && (
+                          <>
+                            {" · "}
+                            {item.medida_lineal_1} × {item.medida_lineal_2} {item.unidad_lineal}
+                          </>
+                        )}
+                        {item.medida_lineal_1 != null && item.medida_lineal_2 == null && (
+                          <>
+                            {" · "}
+                            {item.medida_lineal_1} {item.unidad_lineal}
+                          </>
+                        )}
+                        {item.desperdicio > 0 && <> · Desperdicio: {item.desperdicio}%</>}
+                        {" · "}
+                        <strong>{formatearCOP(item.valor_parcial)}</strong>
+                      </span>
+                    </li>
+                  );
+                }
+
+                // Renglón de módulo: se desglosa toda su composición interna,
+                // igual que en el Detalle de módulos
+                const modulo = datos.modulos.find((m) => m.id === item.item_id);
                 return (
-                <li key={item.id} className={item.tipo_item === "modulo" ? "arbol-modulo" : "arbol-articulo"}>
-                  <span className="arbol-nombre">
-                    {renglonPendiente && (
-                      <span
-                        className="bombillo bombillo-pendiente"
-                        title={
-                          moduloPendiente
-                            ? "Este módulo tiene actualizaciones pendientes con respecto a Parámetros. Actualícelo primero desde Módulos → «Editar»."
-                            : item.tipo_item === "articulo"
-                              ? "Este artículo está desactualizado con respecto a Parámetros. Recalcule la cotización desde «Editar»."
-                              : "El valor de este renglón está desactualizado. Recalcule la cotización desde «Editar»."
-                        }
-                      />
-                    )}
-                    {nombreDeItem(item.tipo_item, item.item_id)}
-                  </span>
-                  <span className="arbol-datos">
-                    Cantidad: {item.cantidad}
-                    {item.medida_lineal_1 != null && item.medida_lineal_2 != null && (
-                      <>
-                        {" · "}
-                        {item.medida_lineal_1} × {item.medida_lineal_2} {item.unidad_lineal}
-                      </>
-                    )}
-                    {item.medida_lineal_1 != null && item.medida_lineal_2 == null && (
-                      <>
-                        {" · "}
-                        {item.medida_lineal_1} {item.unidad_lineal}
-                      </>
-                    )}
-                    {item.desperdicio > 0 && <> · Desperdicio: {item.desperdicio}%</>}
-                    {" · "}
-                    <strong>{formatearCOP(item.valor_parcial)}</strong>
-                  </span>
-                </li>
+                  <li key={item.id} className="arbol-modulo">
+                    <details open>
+                      <summary>
+                        <span className="arbol-nombre">
+                          {bombillo}
+                          {modulo?.nombre ?? "(eliminado)"}
+                        </span>
+                        <span className="arbol-datos">
+                          Cantidad: {item.cantidad} ·{" "}
+                          <strong>{formatearCOP(item.valor_parcial)}</strong>
+                        </span>
+                      </summary>
+                      {modulo && (
+                        <NodoModulo
+                          moduloId={modulo.id}
+                          datos={datos}
+                          desactualizados={modulosPendientes}
+                          mostrarPendientes={!detalleCotizacion.congelada}
+                        />
+                      )}
+                    </details>
+                  </li>
                 );
               })}
           </ul>

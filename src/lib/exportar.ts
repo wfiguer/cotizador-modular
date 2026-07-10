@@ -1,3 +1,4 @@
+import { valorFinalConUtilidad } from "./calculos";
 import { formatearFecha } from "./formato";
 import type { Cotizacion, CotizacionItem, Datos, UnidadLineal } from "../types";
 
@@ -101,7 +102,19 @@ export async function exportarCotizacion(cotizacion: Cotizacion, datos: Datos): 
     }
   }
 
-  filas.push([], ["", "", "", "", "Valor Final", cotizacion.valor_final]);
+  filas.push(
+    [],
+    ["", "", "", "", "Valor Final", cotizacion.valor_final],
+    ["", "", "", "", "Utilidad", `${cotizacion.utilidad}%`],
+    [
+      "",
+      "",
+      "",
+      "",
+      "Valor Final Con Utilidad",
+      valorFinalConUtilidad(cotizacion.valor_final, cotizacion.utilidad),
+    ]
+  );
 
   const hoja = XLSX.utils.aoa_to_sheet(filas);
   hoja["!cols"] = [
@@ -109,7 +122,7 @@ export async function exportarCotizacion(cotizacion: Cotizacion, datos: Datos): 
     { wch: 12 },
     { wch: 10 },
     { wch: 16 },
-    { wch: 12 },
+    { wch: 22 },
     { wch: 14 },
   ];
 
